@@ -1,0 +1,42 @@
+{
+  "level": 1,
+  "bond": 1,
+  "xp": 0,
+  "notes": "",
+  "rider": {
+    "name": "Sigrun",
+    "origin": "Berker Wikinger",
+    "role": "",
+    "attributes": {
+      "Kraft": 2,
+      "Geschick": 2,
+      "Verstand": 1,
+      "Herz": 1
+    },
+    "skills": {
+      "Kampf": 2,
+      "Zähmen": 1
+    },
+    "gear": [
+      "Seil (15 m)",
+      "Fischkorb"
+    ],
+    "weapon": "Axt",
+    "armor": "Lederwams"
+  },
+  "dragon": {
+    "name": "Sturmspitz",
+    "species": "Tödlicher Nadder",
+    "attributes": {
+      "Wucht": 1,
+      "Tempo": 2,
+      "Sinne": 2,
+      "Wildheit": 1
+    },
+    "training": 0,
+    "quirk": "Eitel, putzt sich ständig",
+    "behavior": "Neugierig und stolz. Misstraut Fremden, folgt Sigrun aber überallhin.",
+    "armor": "",
+    "saddle": "Einfacher Sattel"
+  }
+}

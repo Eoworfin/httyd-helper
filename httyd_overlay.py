@@ -24,9 +24,11 @@ WIDTHS = [150, 130, 65, 28, 28, 28, 28, 32, 34, 32, 52, 74, 66, 110, 200, 260, 1
 SLOTS = {"rider.weapon": ("Waffe", "Reiter"), "rider.armor": ("Rüstung", "Reiter"),
          "dragon.armor": ("Rüstung", "Drache"), "dragon.saddle": ("Sattel", "Drache")}
 
-# Dark theme palette
-BG, PANEL, FIELD, BORDER = "#1b1d23", "#24272f", "#2e323c", "#3a3f4b"
-TEXT, MUTED, ACCENT, WARN = "#e8e9ec", "#8b90a0", "#f08a24", "#ff6b5b"
+# Berk palette: smoked wood, leather and parchment, forge fire as accent, shield red, North Sea green
+BG, PANEL, FIELD, BORDER = "#1a1511", "#272019", "#352a20", "#4b3b2c"
+TEXT, MUTED, ACCENT, WARN = "#efe3cb", "#a8957a", "#e07b2e", "#c8473a"
+SEA, ROW_ALT = "#6f9a92", "#2e251d"
+ACCENT_DARK, ACCENT_LIGHT = "#b8611f", "#f0943f"
 FONT = ("Segoe UI", 10)
 MONO = ("Consolas", 11)
 
@@ -55,7 +57,7 @@ def apply_dark_theme(root):
     style.configure("TButton", background=FIELD, foreground=TEXT, borderwidth=0, padding=(12, 6), focusthickness=0)
     style.map("TButton", background=[("pressed", BORDER), ("active", BORDER)])
     style.configure("Accent.TButton", background=ACCENT, foreground=BG, font=(FONT[0], 10, "bold"))
-    style.map("Accent.TButton", background=[("pressed", "#c96f15"), ("active", "#ff9d3d")])
+    style.map("Accent.TButton", background=[("pressed", ACCENT_DARK), ("active", ACCENT_LIGHT)])
     style.configure("TCheckbutton", background=BG, foreground=TEXT, indicatorbackground=FIELD,
                     indicatorforeground=BG, upperbordercolor=BORDER, lowerbordercolor=BORDER)
     style.map("TCheckbutton", background=[("active", BG)], indicatorbackground=[("selected", ACCENT)])
@@ -77,7 +79,9 @@ def apply_dark_theme(root):
     style.configure("Treeview.Heading", background=FIELD, foreground=MUTED, borderwidth=0,
                     padding=6, font=(FONT[0], 10, "bold"))
     style.map("Treeview.Heading", background=[("active", BORDER)])
-    style.configure("Vertical.TScrollbar", background=FIELD, troughcolor=PANEL, borderwidth=0, arrowsize=0)
+    for bar in ("Vertical.TScrollbar", "Horizontal.TScrollbar"):
+        style.configure(bar, background=BORDER, troughcolor=PANEL, borderwidth=0, arrowsize=0)
+        style.map(bar, background=[("active", MUTED)])
 
 
 RULES_NAME = "HTTYD_Regelwerk_Konzept.md"
@@ -135,13 +139,37 @@ class SheetView(tk.Canvas):
 
     def __init__(self, parent):
         super().__init__(parent, bg=BG, highlightthickness=0)
-        self.sheet = None
+        self.sheet = self.values = None
+        self.dirty = False      # sheet changed while the tab was hidden: draw when it becomes visible
+        self._resize_job = None
+        self._width = 0
         self.on_track = None  # callback(key, value) when a pip or ability flag is clicked
-        self.bind("<Configure>", lambda _: self.draw())
+        self.bind("<Configure>", self._on_resize)
 
-    def show(self, sheet):
-        self.sheet = sheet
+    def _on_resize(self, event):
+        # a window drag fires many events: redraw once it settles, and only if the width changed
+        if event.width == self._width:
+            return
+        self._width = event.width
+        if self._resize_job:
+            self.after_cancel(self._resize_job)
+        self._resize_job = self.after(60, self._resized)
+
+    def _resized(self):
+        self._resize_job = None
         self.draw()
+
+    def show(self, sheet, values=None):
+        """New data; drawing is skipped while the tab is hidden (see draw_if_dirty)."""
+        self.sheet, self.values = sheet, values
+        if self.winfo_ismapped():
+            self.draw()
+        else:
+            self.dirty = True
+
+    def draw_if_dirty(self):
+        if self.dirty:
+            self.draw()
 
     # --- drawing primitives
     def text(self, x, y, value, size=10, color=TEXT, font=None, anchor="nw", bold=False):
@@ -233,11 +261,12 @@ class SheetView(tk.Canvas):
 
     # --- layout
     def draw(self):
+        self.dirty = False
         self.delete("all")
         if not self.sheet:
             return
         sheet, r, d = self.sheet, self.sheet.rider, self.sheet.dragon
-        v = derive(sheet)
+        v = self.values or derive(sheet)
         spec = v["spec"] or {}
         pot = spec.get("potential", {})
         attr_cap, skill_cap = v["caps"]
@@ -317,7 +346,7 @@ class SheetView(tk.Canvas):
         quarter = col / 4 - 10
         y_lp = self.pips(x, y, "Lebenspunkte" + (f" · Zähigkeit {d.toughness}" if d.toughness else ""),
                          v["dragon_lp"], half, key="dragon_lp")
-        y_sh = self.pips(x + col / 2, y, "Schüsse", v["shots"], quarter, color=TEXT, key="shots")
+        y_sh = self.pips(x + col / 2, y, "Schüsse", v["shots"], quarter, color=SEA, key="shots")
         self.text(x + col * 3 / 4, y, "TRAINING / ZW", 8, MUTED)
         self.text(x + col * 3 / 4, y + 16, f"{d.training}  /  {spec.get('zw', '?')}", 16, TEXT, SERIF, bold=True)
         y_lp = self.pips(x, y_lp + 6, "Wunden (bei 0 LP)", WOUNDS, half, color=WARN, key="dragon_wounds", taken=True)
@@ -357,7 +386,7 @@ class SheetView(tk.Canvas):
             self.text(m + (i * 5 + 2.5) * box, y + 28, name, 8,
                       ACCENT if v["tier"] == i else MUTED, anchor="n")
         self.text(W - m, y - 4, f"{sheet.bond}/20", 18, TEXT, SERIF, "ne", bold=True)
-        self.text(W - m, y + 26, f"Teamwork +{v['teamwork']} W6", 9, ACCENT, anchor="ne")
+        self.text(W - m, y + 26, f"Teamwork +{v['teamwork']} W6", 9, SEA, anchor="ne", bold=True)
         self.text(W - m - 20, y + 44, f"Rettung (−{BOND_SAVE_COST} Bindung, 1× pro Tag)", 9, MUTED, anchor="ne")
         self.flag(W - m - 7, y + 52, "bond_save")
         return y + 70
@@ -382,6 +411,8 @@ class Overlay(tk.Tk):
         self.adjusting = False  # suppresses EP logic while the program itself changes values
         self.committed = {}     # last accepted numeric values, used to price changes
         self.track = {}         # in-play tracking from the character sheet (lost LP, used abilities)
+        self._refresh_job = None  # pending idle refresh (several field changes are merged into one)
+        self._shown = {}          # label -> last text, avoids needless widget reconfiguration
         self.path = None
         self.settings = load_settings()
         self.free_edit = tk.BooleanVar(value=self.settings["free_edit"])
@@ -405,7 +436,7 @@ class Overlay(tk.Tk):
     def _build_toolbar(self):
         bar = ttk.Frame(self, padding=(10, 10, 10, 6))
         bar.pack(fill="x")
-        ttk.Label(bar, text="Drachenreiter von Berk", font=(FONT[0], 13, "bold"),
+        ttk.Label(bar, text="Drachenreiter von Berk", font=(SERIF[0], 14, "bold"),
                   foreground=ACCENT).pack(side="left", padx=(0, 16))
         for text, cmd, style in [("Neu", self.new, "TButton"), ("Laden", self.open, "TButton"),
                                  ("Speichern unter", self.save_as, "TButton"),
@@ -594,7 +625,7 @@ class Overlay(tk.Tk):
                                 insertbackground=ACCENT, relief="flat", highlightthickness=1,
                                 highlightbackground=BORDER, highlightcolor=ACCENT, padx=4, pady=3)
         self.behavior.grid(row=11, column=1, sticky="ew", pady=1)
-        self.behavior.bind("<KeyRelease>", lambda _: self.refresh())
+        self.behavior.bind("<KeyRelease>", lambda _: self.schedule_refresh())
         self._slot(d, 12, "Rüstung", "dragon.armor")
         self._slot(d, 13, "Sattel", "dragon.saddle")
         # everything below "Art" is hidden until a dragon is chosen
@@ -612,7 +643,7 @@ class Overlay(tk.Tk):
         cell = ttk.Frame(parent, style="Card.TFrame")
         cell.grid(row=row, column=1, sticky="ew", pady=1)
         self.vars[key] = tk.StringVar()
-        self.vars[key].trace_add("write", lambda *_: self.refresh())
+        self.vars[key].trace_add("write", lambda *_: self.schedule_refresh())
         self.locked[key] = box = ttk.Combobox(cell, values=values, textvariable=self.vars[key], width=16)
         box.pack(side="left", fill="x", expand=True)
         box.bind("<<ComboboxSelected>>", lambda _: self.confirm_choice(key, label))
@@ -726,7 +757,7 @@ class Overlay(tk.Tk):
                                   "«Freies Editieren» verteilen.")
         if species in self.species or species in ("", "-"):
             self.prev_species = species
-        self.refresh()
+        self.schedule_refresh()
 
     def _set(self, key, value):
         self.adjusting = True
@@ -758,23 +789,23 @@ class Overlay(tk.Tk):
             return self.on_species_change()
         raw = self.vars[key].get()
         if self.loading or self.adjusting or key not in self.committed or not raw.isdigit():
-            return self.refresh()
+            return self.schedule_refresh()
         old, new = self.committed[key], int(raw)
         if self.free_edit.get() or new == old:
             self.committed[key] = new
             self.info.config(text="")
-            return self.refresh()
+            return self.schedule_refresh()
         label = {"dragon.training": "Training", "rider.toughness": "Zähigkeit Reiter",
                  "dragon.toughness": "Zähigkeit Drache"}.get(key, key.split(".")[-1])
         if new < old:  # lowering is only allowed in free edit mode
             self._revert(key, old)
             self.info.config(text=f"{label} kann nur mit «Freies Editieren» verringert werden.")
-            return self.refresh()
+            return self.schedule_refresh()
         kind = cost_kind(key)
         if not kind:  # EP awards and level-ups cost nothing
             self.committed[key] = new
             self.info.config(text="")
-            return self.refresh()
+            return self.schedule_refresh()
         limit = self._limit(key, self.collect())
         price, ep = upgrade_cost(kind, old, new), self.committed["EP"]
         if new > limit:
@@ -787,7 +818,7 @@ class Overlay(tk.Tk):
             self.committed[key], self.committed["EP"] = new, ep - price
             self._set("EP", ep - price)
             self.info.config(text=f"{label} {old} → {new}: −{price} EP (Rest {ep - price} EP)")
-        self.refresh()
+        self.schedule_refresh()
 
     # --- settings tab
     def _build_settings_tab(self):
@@ -848,51 +879,72 @@ class Overlay(tk.Tk):
         if self.chosen:  # re-evaluate locked fields (origin, role) for the new mode
             self.refresh()
 
+    def debounce(self, name, func, ms=120):
+        """Run func once typing pauses (search fields refill a whole table)."""
+        jobs = self.__dict__.setdefault("_jobs", {})
+        if jobs.get(name):
+            self.after_cancel(jobs[name])
+        jobs[name] = self.after(ms, lambda: (jobs.pop(name, None), func()))
+
+    def schedule_refresh(self):
+        """Refresh once the current event is handled (typing or a spinbox click can write several fields)."""
+        if not self._refresh_job:
+            self._refresh_job = self.after_idle(self.refresh)
+
+    def _text(self, widget, text):
+        """Set a label text only when it changed (each change costs a relayout)."""
+        if self._shown.get(widget) != text:
+            self._shown[widget] = text
+            widget.config(text=text)
+
     def refresh(self):
+        if self._refresh_job:
+            self.after_cancel(self._refresh_job)
+            self._refresh_job = None
         if self.loading or not hasattr(self, "notes"):
             return
         sheet = self.collect()
-        self.view.show(sheet)
+        v = derive(sheet)  # computed once per refresh and shared with the sheet view and the checks
+        self.view.show(sheet, v)
         dragon = has_dragon(sheet)
-        spec = derive(sheet)["spec"]
+        spec = v["spec"]
         if spec:
             yes = lambda flag: "ja" if flag else "nein"
             # compact: full abilities are on the character sheet
-            self.species_info.config(text=f"{spec['cls']} · fliegt {yes(spec['flies'])} · schwimmt "
-                                          f"{yes(spec['swims'])} · reitbar {yes(spec['rideable'])}")  # weakness: see sheet
-        for widget in self.dragon_rows:  # show dragon values only when there is a dragon
-            widget.grid() if dragon else widget.grid_remove()
-        self.no_dragon.grid_remove() if dragon else self.no_dragon.grid()
-        for widget in self.bond_row:
-            widget.grid() if dragon else widget.grid_remove()
-        v = derive(sheet)
+            self._text(self.species_info, f"{spec['cls']} · fliegt {yes(spec['flies'])} · schwimmt "
+                                          f"{yes(spec['swims'])} · reitbar {yes(spec['rideable'])}")
+        if self._shown.get("dragon") != dragon:  # show dragon values only when there is a dragon
+            self._shown["dragon"] = dragon
+            for widget in (*self.dragon_rows, *self.bond_row):
+                widget.grid() if dragon else widget.grid_remove()
+            self.no_dragon.grid_remove() if dragon else self.no_dragon.grid()
         attr_cap, skill_cap = v["caps"]
         pot = v["spec"]["potential"] if v["spec"] else {}
         role = role_attrs(sheet)
         free, chosen = self.free_edit.get(), bool(sheet.rider.role)
         unlocked = sheet.level >= ROLE_LEVEL
         self.locked["rider.role"].configure(state="readonly" if free or (unlocked and not chosen) else "disabled")
-        self.hints["rider.role"].config(text=("" if free else "fest" if chosen and unlocked
+        self._text(self.hints["rider.role"], ("" if free else "fest" if chosen and unlocked
                                               else f"ab Stufe {ROLE_LEVEL}" if not unlocked else "wählbar"))
         has_origin = bool(sheet.rider.origin)
         self.locked["rider.origin"].configure(state="readonly" if free or not has_origin else "disabled")
-        self.hints["rider.origin"].config(text="" if free else "fest" if has_origin else "wählbar")
+        self._text(self.hints["rider.origin"], "" if free else "fest" if has_origin else "wählbar")
         for attr in RIDER_ATTRS:
             bonus = "  (+1 Rolle)" if attr in role else ""
-            self.hints[f"rider.attr.{attr}"].config(text=f"max: {attr_limit(sheet, attr, v['caps'])}{bonus}")
+            self._text(self.hints[f"rider.attr.{attr}"], f"max: {attr_limit(sheet, attr, v['caps'])}{bonus}")
             origin = ORIGIN_BONUS.get(sheet.rider.origin)
             extra = f", {origin} max {skill_cap + 1 + (attr in role)} (Herkunft)" if SKILLS[attr].count(origin) else ""
-            self.hints[f"group.{attr}"].config(
-                text=f"{attr}   ·   max {skill_cap + (attr in role)}{' (+1 Rolle)' if attr in role else ''}{extra}")
+            self._text(self.hints[f"group.{attr}"],
+                f"{attr}   ·   max {skill_cap + (attr in role)}{' (+1 Rolle)' if attr in role else ''}{extra}")
         for attr in DRAGON_ATTRS:
             limit = min(attr_cap, pot.get(attr, attr_cap))
-            self.hints[f"dragon.attr.{attr}"].config(text=f"max: {limit}" + (f"  (Pot. {pot[attr]})" if pot else ""))
-        self.hints["dragon.training"].config(text=f"max: {skill_cap}")
+            self._text(self.hints[f"dragon.attr.{attr}"], f"max: {limit}" + (f"  (Pot. {pot[attr]})" if pot else ""))
+        self._text(self.hints["dragon.training"], f"max: {skill_cap}")
         for key in ("rider.toughness", "dragon.toughness"):
             limit = tough_limit(sheet, key.startswith("rider"), v["caps"])
             tank = "  Tank" if limit > skill_cap else ""
-            self.hints[key].config(text=f"max: {limit}{tank}  (+{TOUGH_LP} LP/Pkt.)")
-        self.warnings.config(text="   ".join(f"! {w}" for w in check(sheet, derive(sheet))))
+            self._text(self.hints[key], f"max: {limit}{tank}  (+{TOUGH_LP} LP/Pkt.)")
+        self._text(self.warnings, "   ".join(f"! {w}" for w in check(sheet, v)))
 
     def on_track(self, key, value):
         """Click on the character sheet: set lost points of a resource or toggle an ability flag."""
@@ -919,6 +971,7 @@ class Overlay(tk.Tk):
     def _build_view_tab(self):
         tab = ttk.Frame(self.tabs)
         self.view = SheetView(tab)
+        tab.bind("<Map>", lambda _: self.view.draw_if_dirty())
         self.view.on_track = self.on_track
         scroll = ttk.Scrollbar(tab, orient="vertical", command=self.view.yview)
         self.view.configure(yscrollcommand=scroll.set)
@@ -964,10 +1017,12 @@ class Overlay(tk.Tk):
                 "muted": dict(foreground=MUTED)}
         for name, options in tags.items():
             self.rules.tag_configure(name, **options)
-        self.load_rules()
+        self.chapters, self.rules_loaded = {}, False
+        tab.bind("<Map>", lambda _: self.rules_loaded or self.load_rules())
         return tab
 
     def load_rules(self):
+        self.rules_loaded = True
         path = find_rules()
         self.rules.config(state="normal")
         self.rules.delete("1.0", "end")
@@ -1029,7 +1084,7 @@ class Overlay(tk.Tk):
             ttk.Label(bar, text=label, style="Muted.TLabel").pack(side="left", padx=(16, 0))
             ttk.Combobox(bar, values=values, textvariable=var, width=10, state="readonly").pack(side="left", padx=4)
         for var in (self.item_search, self.item_type, self.item_owner):
-            var.trace_add("write", lambda *_: self.fill_items())
+            var.trace_add("write", lambda *_: self.debounce("items", self.fill_items))
         ttk.Button(bar, text="Ausrüsten / ins Inventar", command=self.equip_item,
                    style="Accent.TButton").pack(side="right")
         ttk.Button(bar, text="items.json neu laden", command=self.reload_items).pack(side="right", padx=6)
@@ -1040,7 +1095,7 @@ class Overlay(tk.Tk):
         for col, width in zip(cols, [190, 80, 70, 300, 380]):
             self.item_tree.heading(col, text=col)
             self.item_tree.column(col, width=width, anchor="w", stretch=col == "Beschreibung")
-        self.item_tree.tag_configure("odd", background="#2a2d36")
+        self.item_tree.tag_configure("odd", background=ROW_ALT)
         self.item_tree.bind("<Double-1>", lambda _: self.equip_item())
         self.item_tree.pack(fill="both", expand=True)
         ttk.Label(tab, text="Neue Items in items.json eintragen (Name, type, for, mods, text) und neu laden. "
@@ -1181,7 +1236,7 @@ class Overlay(tk.Tk):
         ttk.Button(bar, text="Als Drache übernehmen", command=self.take_species,
                    style="Accent.TButton").pack(side="right")
         for var in (self.search, self.cls_filter):
-            var.trace_add("write", lambda *_: self.fill_list())
+            var.trace_add("write", lambda *_: self.debounce("list", self.fill_list))
 
         box = ttk.Frame(tab)
         box.pack(fill="both", expand=True)
@@ -1199,7 +1254,7 @@ class Overlay(tk.Tk):
         scroll.grid(row=0, column=1, sticky="ns")
         xscroll.grid(row=1, column=0, sticky="ew")
         self.tree.bind("<Double-1>", lambda _: self.take_species())
-        self.tree.tag_configure("odd", background="#2a2d36")
+        self.tree.tag_configure("odd", background=ROW_ALT)
         self.sort_key, self.sort_desc = None, False
         self.fill_list()
         return tab

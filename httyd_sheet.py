@@ -21,6 +21,23 @@ from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
 SPECIES_FILE = Path(__file__).with_name("Drachenliste.md")
+_CACHE = {}  # path -> (file stamp, parsed data); data files are parsed again only when they change
+
+
+def _cached(path, parse):
+    """Parse a data file once and reuse the result until its size or modification time changes.
+    The returned data is shared: callers must not modify it."""
+    try:
+        st = path.stat()
+    except OSError:
+        return parse(None)
+    stamp = (st.st_mtime_ns, st.st_size)
+    hit = _CACHE.get(path)
+    if hit and hit[0] == stamp:
+        return hit[1]
+    data = parse(path.read_text(encoding="utf-8"))
+    _CACHE[path] = (stamp, data)
+    return data
 ITEMS_FILE = Path(__file__).with_name("items.json")
 ITEM_TYPES = ["Waffe", "Rüstung", "Sattel", "Sonstiges"]
 DRAGON_ATTRS = ["Wucht", "Tempo", "Sinne", "Wildheit"]
@@ -138,11 +155,15 @@ def load(path):
 # --- Rules --------------------------------------------------------------------
 
 def load_species():
-    """Parse the species table in Drachenliste.md into {name: info}."""
-    if not SPECIES_FILE.exists():
-        return {}
+    """Species table of Drachenliste.md as {name: info} (cached, read-only)."""
+    return _cached(SPECIES_FILE, _parse_species)
+
+
+def _parse_species(text):
     species = {}
-    for line in SPECIES_FILE.read_text(encoding="utf-8").splitlines():
+    for line in (text or "").splitlines():
+        if not line.startswith("|"):
+            continue
         cells = [c.strip() for c in line.strip().strip("|").split("|")]
         if len(cells) == 17 and cells[3].isdigit():  # skip header and separator rows
             name, original, cls, w, t, s, wi, kb, shots, zw, flies, swims, ride, shot, special, weakness, food = cells
@@ -201,22 +222,27 @@ def has_dragon(sheet):
 
 def find_species(query):
     """Match German or original name, exact first, then partial (e.g. 'Nadder', 'Night Fury')."""
+    species = load_species()
+    if query in species:  # fast path: the editor always passes the exact German name
+        return species[query]
     query = query.strip().lower()
-    if query in ("-", "–"):
+    if not query or query in ("-", "–"):
         return None
-    if not query:
-        return None
-    species = load_species().values()
-    exact = [s for s in species if query in (s["name"].lower(), s["original"].lower())]
-    partial = [s for s in species if query in s["name"].lower() or query in s["original"].lower()]
+    lowered = [(s["name"].lower(), s["original"].lower(), s) for s in species.values()]
+    exact = [s for name, orig, s in lowered if query in (name, orig)]
+    partial = [s for name, orig, s in lowered if query in name or query in orig]
     return (exact or partial or [None])[0]
 
 
 def load_items():
-    """All items from items.json as {name: item}."""
+    """All items from items.json as {name: item} (cached, read-only)."""
+    return _cached(ITEMS_FILE, _parse_items)
+
+
+def _parse_items(text):
     try:
-        data = json.loads(ITEMS_FILE.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+        data = json.loads(text) if text else {}
+    except ValueError:
         return {}
     return {item["name"]: item for item in data.get("items", [])}
 

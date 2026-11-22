@@ -442,7 +442,7 @@ class SheetView(tk.Canvas):
 class Overlay(tk.Tk):
     def __init__(self, path=None):
         super().__init__()
-        self.title("HTTYD - Drachenreiter von Berk")
+        self.title(f"Drachenreiter von Berk  ·  {updater.current_version()}")  # version from the release build
         self.geometry("1280x780")
         apply_dark_theme(self)
         self.species = load_species()

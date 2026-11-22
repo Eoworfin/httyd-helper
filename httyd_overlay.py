@@ -61,6 +61,9 @@ def apply_dark_theme(root):
     style.configure("Title.TLabel", background=PANEL, foreground=ACCENT, font=(FONT[0], 11, "bold"))
     style.configure("TButton", background=FIELD, foreground=TEXT, borderwidth=0, padding=(12, 6), focusthickness=0)
     style.map("TButton", background=[("pressed", BORDER), ("active", BORDER)])
+    style.configure("TMenubutton", background=FIELD, foreground=TEXT, borderwidth=0, padding=(12, 6),
+                    arrowcolor=ACCENT, relief="flat")
+    style.map("TMenubutton", background=[("pressed", BORDER), ("active", BORDER)])
     style.configure("Accent.TButton", background=ACCENT, foreground=BG, font=(FONT[0], 10, "bold"))
     style.map("Accent.TButton", background=[("pressed", ACCENT_DARK), ("active", ACCENT_LIGHT)])
     style.configure("TCheckbutton", background=BG, foreground=TEXT, indicatorbackground=FIELD,
@@ -283,21 +286,22 @@ class SheetView(tk.Canvas):
         W = self.fixed_width or max(self.winfo_width(), 900)
         col = (W - 3 * m) / 2
 
-        # header
-        self.text(W / 2, 14, "DRACHENREITER VON BERK", 18, ACCENT, SERIF, "n", bold=True)
-        self.text(W / 2, 44, "Charakterbogen", 9, MUTED, anchor="n")
-        # level / XP box in the top right corner (like the DnD class & level box)
-        bw, bx = 170, W - m - 170
-        self.create_rectangle(bx, 8, bx + bw, 58, outline=ACCENT, fill=PANEL, width=2)
-        for i, (label, value) in enumerate([("Stufe", sheet.level), ("EP", sheet.xp)]):
-            cx = bx + bw / 4 + i * bw / 2
-            self.text(cx, 30, str(value), 18, TEXT, SERIF, "center", bold=True)
-            self.text(cx, 48, label.upper(), 7, MUTED, anchor="center")
-        self.create_line(bx + bw / 2, 16, bx + bw / 2, 50, fill=BORDER)
+        # title and level / XP box only on paper; on screen they sit in the fixed bar above the sheet
+        top = 75 if self.printing else 14
+        if self.printing:
+            self.text(W / 2, 14, "DRACHENREITER VON BERK", 18, ACCENT, SERIF, "n", bold=True)
+            self.text(W / 2, 44, "Charakterbogen", 9, MUTED, anchor="n")
+            bw, bx = 170, W - m - 170  # like the DnD class & level box
+            self.create_rectangle(bx, 8, bx + bw, 58, outline=ACCENT, fill=PANEL, width=2)
+            for i, (label, value) in enumerate([("Stufe", sheet.level), ("EP", sheet.xp)]):
+                cx = bx + bw / 4 + i * bw / 2
+                self.text(cx, 30, str(value), 18, TEXT, SERIF, "center", bold=True)
+                self.text(cx, 48, label.upper(), 7, MUTED, anchor="center")
+            self.create_line(bx + bw / 2, 16, bx + bw / 2, 50, fill=BORDER)
 
 
         # rider column
-        x, y = m, self.title(m, 75, col, "Reiter")
+        x, y = m, self.title(m, top, col, "Reiter")
         third = col / 3
         for i, (label, value) in enumerate([("Name", r.name), ("Herkunft", r.origin), ("Rolle", r.role)]):
             self.field(x + i * third, y, third, label, value)
@@ -328,7 +332,7 @@ class SheetView(tk.Canvas):
 
         # dragon column
         x = 2 * m + col
-        y = self.title(x, 75, col, "Drache")
+        y = self.title(x, top, col, "Drache")
         blank = self.printing and not has_dragon(sheet)  # print version without dragon: empty form to fill in
         if not has_dragon(sheet) and not blank:  # campaign start: no dragon yet
             self.create_rectangle(x, y + 4, x + col, y + 124, outline=BORDER, dash=(4, 4))
@@ -457,6 +461,8 @@ class Overlay(tk.Tk):
         self.free_edit = tk.BooleanVar(value=self.settings["free_edit"])
         self.topmost = tk.BooleanVar(value=self.settings["topmost"])
         self.attributes("-topmost", self.topmost.get())
+        self.start_xp = tk.StringVar(value=str(self.settings["start_xp"]))
+        self.start_xp.trace_add("write", lambda *_: self.update_mode())
 
         self._build_toolbar()
         self.tabs = ttk.Notebook(self)
@@ -467,7 +473,6 @@ class Overlay(tk.Tk):
         self.tabs.add(self._build_list_tab(), text="Drachenliste")
         self.tabs.add(self._build_items_tab(), text="Items")
         self.tabs.add(self._build_rules_tab(), text="Regeln")
-        self.tabs.add(self._build_settings_tab(), text="Einstellungen")
         self.update_mode()
         self.set_sheet(load(path) if path else example(), path)
 
@@ -477,12 +482,24 @@ class Overlay(tk.Tk):
         bar.pack(fill="x")
         ttk.Label(bar, text="Drachenreiter von Berk", font=(SERIF[0], 14, "bold"),
                   foreground=ACCENT).pack(side="left", padx=(0, 16))
-        for text, cmd, style in [("Neu", self.new, "TButton"), ("Laden", self.open, "TButton"),
-                                 ("Speichern unter", self.save_as, "TButton"),
-                                 ("Speichern", self.save, "Accent.TButton")]:
-            ttk.Button(bar, text=text, command=cmd, style=style).pack(side="left", padx=3)
-        ttk.Button(bar, text="Rasten", command=self.rest).pack(side="left", padx=(12, 3))
-        ttk.Button(bar, text="Brotlose Nacht", command=lambda: self.rest(fed=False)).pack(side="left", padx=3)
+        menu_button = ttk.Menubutton(bar, text="☰  Menü")
+        menu = tk.Menu(menu_button, tearoff=False, bg=PANEL, fg=TEXT, activebackground=ACCENT,
+                       activeforeground=BG, bd=0, relief="flat", font=FONT)
+        for entry in [("Neu", self.new, "Strg+N"), ("Laden …", self.open, "Strg+O"),
+                                     ("Speichern", self.save, "Strg+S"),
+                                     ("Speichern unter …", self.save_as, "Strg+Shift+S"), None,
+                                     ("Einstellungen …", self.open_settings, ""), ("Über …", self.about, ""), None,
+                                     ("Beenden", self.destroy, "")]:
+            if entry is None:
+                menu.add_separator()
+            else:
+                label, command, keys = entry
+                menu.add_command(label=label, command=command, accelerator=keys)
+        menu_button["menu"] = menu
+        menu_button.pack(side="left", padx=3)
+        for keys, command in [("<Control-n>", self.new), ("<Control-o>", self.open), ("<Control-s>", self.save),
+                              ("<Control-Shift-S>", self.save_as)]:
+            self.bind_all(keys, lambda _, c=command: c())
         self.mode = ttk.Label(bar, style="Muted.TLabel")
         self.mode.pack(side="left", padx=12)
         self.status = ttk.Label(bar, style="Muted.TLabel")
@@ -860,27 +877,38 @@ class Overlay(tk.Tk):
         self.schedule_refresh()
 
     # --- settings tab
-    def _build_settings_tab(self):
-        tab = ttk.Frame(self.tabs, padding=10)
-        card = self._group(tab, "Bearbeitung")
+    def open_settings(self):
+        """Settings dialog (opened from the menu); changes apply and are saved at once."""
+        if getattr(self, "settings_win", None) and self.settings_win.winfo_exists():
+            return self.settings_win.lift()
+        win = self.settings_win = tk.Toplevel(self, bg=BG, padx=12, pady=12)
+        win.title("Einstellungen")
+        win.transient(self)
+        win.resizable(False, False)
+        card = self._group(win, "Bearbeitung")
         ttk.Checkbutton(card, text="Freies Editieren", variable=self.free_edit, style="Card.TCheckbutton",
                         command=self.update_mode).grid(row=0, column=0, sticky="w")
         ttk.Label(card, text="Werte ohne EP-Kosten setzen und auch verringern – für die Charaktererschaffung "
                              "oder Korrekturen durch die Spielleitung.", style="Card.TLabel",
-                  foreground=MUTED).grid(row=1, column=0, sticky="w", pady=(0, 6))
+                  foreground=MUTED, wraplength=380, justify="left").grid(row=1, column=0, sticky="w", pady=(0, 6))
         ttk.Checkbutton(card, text="Fenster immer im Vordergrund", variable=self.topmost, style="Card.TCheckbutton",
                         command=self.update_mode).grid(row=2, column=0, sticky="w")
         start = ttk.Frame(card, style="Card.TFrame")
         start.grid(row=3, column=0, sticky="w", pady=(8, 0))
         ttk.Label(start, text="Start-EP für neue Reiter", style="Card.TLabel").pack(side="left")
-        self.start_xp = tk.StringVar(value=str(self.settings["start_xp"]))
-        self.start_xp.trace_add("write", lambda *_: self.update_mode())
         ttk.Spinbox(start, from_=0, to=200, width=5, textvariable=self.start_xp).pack(side="left", padx=8)
-        ttk.Label(start, text="Standard 24 (entspricht 2 Attributen auf 2 + 4 Fertigkeiten auf 1)",
-                  style="Card.TLabel", foreground=MUTED).pack(side="left")
+        ttk.Label(card, text="Standard 24 (entspricht 2 Attributen auf 2 + 4 Fertigkeiten auf 1)",
+                  style="Card.TLabel", foreground=MUTED, wraplength=380, justify="left").grid(row=4, column=0, sticky="w")
 
-        ttk.Label(tab, text="Weitere Einstellungen folgen.", style="Muted.TLabel").pack(anchor="w", pady=6)
-        return tab
+        ttk.Button(win, text="Schliessen", command=win.destroy, style="Accent.TButton").pack(anchor="e", pady=(10, 0))
+        win.bind("<Escape>", lambda _: win.destroy())
+
+    def about(self):
+        messagebox.showinfo("Über", "Drachenreiter von Berk\nCharakterbogen-Werkzeug für das HTTYD-Pen-&-Paper\n\n"
+                                    "Reiter und Drache bearbeiten, Charakterbogen mit Kampf-Tracking, Drachenliste, "
+                                    "Items, Regelwerk und PDF-Druckversion.\n\n"
+                                    "Dateien: Drachenliste.md, items.json, HTTYD_Regelwerk_Konzept.md\n"
+                                    "Stand: 22.11.2026", parent=self)
 
     def _cost_table(self, box):
         """Compact EP cost grid: factor x new value, summed over several steps."""
@@ -945,6 +973,7 @@ class Overlay(tk.Tk):
         sheet = self.collect()
         v = derive(sheet)  # computed once per refresh and shared with the sheet view and the checks
         self.view.show(sheet, v)
+        self._text(self.view_level, f"Stufe {sheet.level}  ·  {sheet.xp} EP")
         dragon = has_dragon(sheet)
         spec = v["spec"]
         if spec:
@@ -1011,9 +1040,12 @@ class Overlay(tk.Tk):
         tab = ttk.Frame(self.tabs)
         bar = ttk.Frame(tab, padding=(0, 0, 0, 6))
         bar.pack(fill="x")
-        ttk.Label(bar, text="Druckversion: LP, Mut, Schüsse, Wunden, Bindung und Flags bleiben leer zum Ankreuzen.",
-                  style="Muted.TLabel").pack(side="left")
+        self.view_level = ttk.Label(bar, font=(SERIF[0], 14, "bold"), foreground=ACCENT)
+        self.view_level.pack(side="left", padx=(4, 18))
+        ttk.Button(bar, text="Rasten", command=self.rest).pack(side="left")
+        ttk.Button(bar, text="Brotlose Nacht", command=lambda: self.rest(fed=False)).pack(side="left", padx=6)
         ttk.Button(bar, text="Als PDF exportieren", command=self.export_pdf, style="Accent.TButton").pack(side="right")
+        ttk.Label(bar, text="Druck: Kreise, Bindung und Flags leer zum Ankreuzen", style="Muted.TLabel").pack(side="right", padx=8)
         self.view = SheetView(tab)
         tab.bind("<Map>", lambda _: self.view.draw_if_dirty())
         self.view.on_track = self.on_track

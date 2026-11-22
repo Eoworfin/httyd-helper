@@ -1,0 +1,53 @@
+# Builds Drachenreiter.exe (folder version) and attaches it to a GitHub release.
+# Trigger: push a version tag, e.g.  git tag v1.1  &&  git push --tags
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:  # manual test build from the Actions tab (no release)
+
+permissions:
+  contents: write  # needed to create the release
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install PyInstaller
+        run: pip install pyinstaller
+
+      - name: Write version
+        shell: pwsh
+        run: |
+          $version = if ($env:GITHUB_REF_TYPE -eq "tag") { $env:GITHUB_REF_NAME } else { "dev-$($env:GITHUB_SHA.Substring(0,7))" }
+          Set-Content -Path version.txt -Value $version -NoNewline
+
+      - name: Build
+        run: pyinstaller --noconfirm --windowed --name Drachenreiter --add-data "version.txt;." httyd_overlay.py
+
+      - name: Add data folder and pack
+        shell: pwsh
+        run: |
+          $data = "dist/Drachenreiter/daten"
+          New-Item -ItemType Directory -Force -Path $data | Out-Null
+          Copy-Item Drachenliste.md, items.json, HTTYD_Regelwerk_Konzept.md, sigrun.json -Destination $data
+          Compress-Archive -Path dist/Drachenreiter -DestinationPath Drachenreiter-windows.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Drachenreiter-windows
+          path: Drachenreiter-windows.zip
+
+      - name: Publish release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Drachenreiter-windows.zip
+          generate_release_notes: true

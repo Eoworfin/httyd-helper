@@ -20,7 +20,12 @@ import sys
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
-SPECIES_FILE = Path(__file__).with_name("Drachenliste.md")
+# In the built program (PyInstaller folder) the editable data lives in "daten" next to the exe;
+# when run as a script, the data files sit next to the code.
+FROZEN = getattr(sys, "frozen", False)
+APP_DIR = Path(sys.executable).parent if FROZEN else Path(__file__).parent
+DATA_DIR = APP_DIR / "daten" if FROZEN else APP_DIR
+SPECIES_FILE = DATA_DIR / "Drachenliste.md"
 _CACHE = {}  # path -> (file stamp, parsed data); data files are parsed again only when they change
 
 
@@ -38,7 +43,7 @@ def _cached(path, parse):
     data = parse(path.read_text(encoding="utf-8"))
     _CACHE[path] = (stamp, data)
     return data
-ITEMS_FILE = Path(__file__).with_name("items.json")
+ITEMS_FILE = DATA_DIR / "items.json"
 ITEM_TYPES = ["Waffe", "Rüstung", "Sattel", "Sonstiges"]
 DRAGON_ATTRS = ["Wucht", "Tempo", "Sinne", "Wildheit"]
 BOND_TIERS = ["Misstrauen", "Vertrauen", "Partner", "Seelenverwandt", "Einheit"]

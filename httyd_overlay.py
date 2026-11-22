@@ -9,12 +9,15 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 import json
+import threading
 
+import httyd_update as updater
 from httyd_pdf import canvas_to_pdf
 
 from httyd_sheet import (BOND_TIERS, COSTS, DRAGON_ATTRS, ITEM_TYPES, ORIGIN_BONUS, SKILLS, Dragon, Rider, Sheet,
                          ROLE_LEVEL, add_item, add_species, attr_limit, check, derive, has_dragon, role_attrs, skill_limit, example, fmt_mods, load, load_items, load_species,
-                         parse_mods, save, upgrade_cost, TOUGH_LP, rest, tough_limit, WOUNDS, BOND_SAVE_COST)
+                         parse_mods, save, upgrade_cost, TOUGH_LP, rest, tough_limit, WOUNDS, BOND_SAVE_COST,
+                         APP_DIR, DATA_DIR)
 
 RIDER_ATTRS = ["Kraft", "Geschick", "Verstand", "Herz"]
 ORIGINS = ["Berker Wikinger", "Schmiedelehrling", "Drachenjäger-Überläufer", "Ausgestossener (Outcast)", "Handelsfahrer"]
@@ -93,8 +96,8 @@ def apply_dark_theme(root):
 
 
 RULES_NAME = "HTTYD_Regelwerk_Konzept.md"
-SETTINGS_FILE = Path(__file__).with_name("settings.json")
-DEFAULT_SETTINGS = {"free_edit": False, "topmost": False, "start_xp": 24}
+SETTINGS_FILE = DATA_DIR / "settings.json"
+DEFAULT_SETTINGS = {"free_edit": False, "topmost": False, "start_xp": 24, "update_check": True}
 
 
 def load_settings():
@@ -117,9 +120,8 @@ def cost_kind(key):
 
 
 def find_rules():
-    """Rulebook lives next to this script or one folder up (e.g. code in 00_Code)."""
-    here = Path(__file__).resolve().parent
-    return next((p for p in (here / RULES_NAME, here.parent / RULES_NAME) if p.exists()), None)
+    """Rulebook lives in the data folder (or one folder above the program, as in older layouts)."""
+    return next((p for p in (DATA_DIR / RULES_NAME, APP_DIR.parent / RULES_NAME) if p.exists()), None)
 
 
 # --- small converters ---------------------------------------------------------
@@ -475,6 +477,8 @@ class Overlay(tk.Tk):
         self.tabs.add(self._build_rules_tab(), text="Regeln")
         self.update_mode()
         self.set_sheet(load(path) if path else example(), path)
+        if updater.can_self_update() and self.settings.get("update_check", True):
+            self.after(1500, self.check_updates)  # quietly, once the window is up
 
     # --- toolbar / file handling
     def _build_toolbar(self):
@@ -488,7 +492,9 @@ class Overlay(tk.Tk):
         for entry in [("Neu", self.new, "Strg+N"), ("Laden …", self.open, "Strg+O"),
                                      ("Speichern", self.save, "Strg+S"),
                                      ("Speichern unter …", self.save_as, "Strg+Shift+S"), None,
-                                     ("Einstellungen …", self.open_settings, ""), ("Über …", self.about, ""), None,
+                                     ("Einstellungen …", self.open_settings, ""),
+                                     ("Nach Updates suchen …", lambda: self.check_updates(quiet=False), ""),
+                                     ("Über …", self.about, ""), None,
                                      ("Beenden", self.destroy, "")]:
             if entry is None:
                 menu.add_separator()
@@ -900,15 +906,74 @@ class Overlay(tk.Tk):
         ttk.Label(card, text="Standard 24 (entspricht 2 Attributen auf 2 + 4 Fertigkeiten auf 1)",
                   style="Card.TLabel", foreground=MUTED, wraplength=380, justify="left").grid(row=4, column=0, sticky="w")
 
+        card = self._group(win, "Updates")
+        self.update_check = tk.BooleanVar(value=self.settings.get("update_check", True))
+        ttk.Checkbutton(card, text="Beim Start nach neuer Version suchen", variable=self.update_check,
+                        style="Card.TCheckbutton", command=self.update_mode).grid(row=0, column=0, sticky="w")
+        ttk.Label(card, text=f"Installiert: {updater.current_version()}", style="Card.TLabel",
+                  foreground=MUTED).grid(row=1, column=0, sticky="w")
         ttk.Button(win, text="Schliessen", command=win.destroy, style="Accent.TButton").pack(anchor="e", pady=(10, 0))
         win.bind("<Escape>", lambda _: win.destroy())
 
+    # --- updates from GitHub releases
+    def check_updates(self, quiet=True):
+        """Look for a newer release in the background; quiet: only speak up when there is one."""
+        if not updater.can_self_update():
+            if not quiet:
+                messagebox.showinfo("Updates", "Updates gibt es nur in der installierten Drachenreiter.exe.\n"
+                                               "Im Code-Ordner einfach «git pull» verwenden.", parent=self)
+            return
+        result = {}
+
+        def work():  # network in a thread, the window keeps responding
+            try:
+                result["release"] = updater.latest_release()
+            except Exception as error:  # offline, rate limit, ...
+                result["error"] = error
+
+        thread = threading.Thread(target=work, daemon=True)
+        thread.start()
+
+        def done():
+            if thread.is_alive():
+                return self.after(200, done)
+            release = result.get("release")
+            if result.get("error") or not release:
+                if not quiet:
+                    messagebox.showwarning("Updates", f"Keine Verbindung zu GitHub.\n{result.get('error', '')}",
+                                           parent=self)
+            elif updater.is_newer(release["tag"]):
+                self.offer_update(release)
+            elif not quiet:
+                messagebox.showinfo("Updates", f"Du hast die neueste Version ({updater.current_version()}).",
+                                    parent=self)
+        done()
+
+    def offer_update(self, release):
+        notes = release["notes"][:600] + ("…" if len(release["notes"]) > 600 else "")
+        if not messagebox.askyesno("Update verfügbar",
+                                   f"Version {release['tag']} ist da (installiert: {updater.current_version()}).\n\n"
+                                   f"{notes}\n\nJetzt aktualisieren? Das Programm startet danach neu. "
+                                   "Eigene Arten, Items, Einstellungen und Charakterbögen bleiben erhalten.",
+                                   parent=self):
+            return
+        self.info.config(text=f"Lade Version {release['tag']} …")
+        self.update_idletasks()
+        try:
+            work, program, notes = updater.download_and_prepare(release["url"])
+            updater.launch_swap_and_restart(work, program)
+        except Exception as error:
+            messagebox.showerror("Update", f"Update fehlgeschlagen:\n{error}", parent=self)
+            return
+        self.destroy()  # the update script waits for this, swaps the files and restarts
+
     def about(self):
-        messagebox.showinfo("Über", "Drachenreiter von Berk\nCharakterbogen-Werkzeug für das HTTYD-Pen-&-Paper\n\n"
+        messagebox.showinfo("Über", f"Drachenreiter von Berk  ·  Version {updater.current_version()}\n"
+                                    "Charakterbogen-Werkzeug für das HTTYD-Pen-&-Paper\n\n"
                                     "Reiter und Drache bearbeiten, Charakterbogen mit Kampf-Tracking, Drachenliste, "
                                     "Items, Regelwerk und PDF-Druckversion.\n\n"
-                                    "Dateien: Drachenliste.md, items.json, HTTYD_Regelwerk_Konzept.md\n"
-                                    "Stand: 22.11.2026", parent=self)
+                                    f"Daten: {DATA_DIR}\n"
+                                    f"github.com/{updater.REPO}", parent=self)
 
     def _cost_table(self, box):
         """Compact EP cost grid: factor x new value, summed over several steps."""
@@ -932,6 +997,8 @@ class Overlay(tk.Tk):
     def update_mode(self):
         """Apply and persist settings, show the edit mode in the toolbar."""
         self.settings.update(free_edit=self.free_edit.get(), topmost=self.topmost.get())
+        if hasattr(self, "update_check"):
+            self.settings["update_check"] = self.update_check.get()
         if hasattr(self, "start_xp") and self.start_xp.get().isdigit():
             self.settings["start_xp"] = int(self.start_xp.get())
         try:

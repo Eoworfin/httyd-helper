@@ -61,8 +61,10 @@ def latest_release(timeout=8):
 
 
 def is_newer(tag, current=None):
+    """True if the release tag is newer. Test builds ('dev', 'dev-1a2b3c4' from a manual workflow run)
+    count as older than any release."""
     current = current or current_version()
-    return current == "dev" or parse_version(tag) > parse_version(current)
+    return current.lower().startswith("dev") or parse_version(tag) > parse_version(current)
 
 
 # --- data merge ---------------------------------------------------------------

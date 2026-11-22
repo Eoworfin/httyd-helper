@@ -477,6 +477,7 @@ class Overlay(tk.Tk):
         self.tabs.add(self._build_rules_tab(), text="Regeln")
         self.update_mode()
         self.set_sheet(load(path) if path else example(), path)
+        self.note_new_version()
         if updater.can_self_update() and self.settings.get("update_check", True):
             self.after(1500, self.check_updates)  # quietly, once the window is up
 
@@ -916,6 +917,16 @@ class Overlay(tk.Tk):
         win.bind("<Escape>", lambda _: win.destroy())
 
     # --- updates from GitHub releases
+    def note_new_version(self):
+        """After an update: say so once in the status line and remember the version."""
+        version, last = updater.current_version(), self.settings.get("last_version")
+        if version.startswith("dev") or version == last:
+            return
+        if last:
+            self.info.config(text=f"Aktualisiert: {last} → {version}. Eigene Daten wurden übernommen.")
+        self.settings["last_version"] = version
+        self.update_mode()  # saves the settings
+
     def check_updates(self, quiet=True):
         """Look for a newer release in the background; quiet: only speak up when there is one."""
         if not updater.can_self_update():

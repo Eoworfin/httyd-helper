@@ -10,6 +10,8 @@ from tkinter import filedialog, messagebox, ttk
 
 import json
 
+from httyd_pdf import canvas_to_pdf
+
 from httyd_sheet import (BOND_TIERS, COSTS, DRAGON_ATTRS, ITEM_TYPES, ORIGIN_BONUS, SKILLS, Dragon, Rider, Sheet,
                          ROLE_LEVEL, add_item, add_species, attr_limit, check, derive, has_dragon, role_attrs, skill_limit, example, fmt_mods, load, load_items, load_species,
                          parse_mods, save, upgrade_cost, TOUGH_LP, rest, tough_limit, WOUNDS, BOND_SAVE_COST)
@@ -29,6 +31,9 @@ BG, PANEL, FIELD, BORDER = "#1a1511", "#272019", "#352a20", "#4b3b2c"
 TEXT, MUTED, ACCENT, WARN = "#efe3cb", "#a8957a", "#e07b2e", "#c8473a"
 SEA, ROW_ALT = "#6f9a92", "#2e251d"
 ACCENT_DARK, ACCENT_LIGHT = "#b8611f", "#f0943f"
+# print colours for the PDF: white paper, dark ink, backgrounds left blank (None)
+PRINT_COLORS = {BG: "#ffffff", PANEL: "#ffffff", ROW_ALT: None, FIELD: "#f1ece3", BORDER: "#8f8578", TEXT: "#1b1b1b",
+                MUTED: "#5f574e", ACCENT: "#9c4f16", WARN: "#a3352a", SEA: "#3b6b64"}
 FONT = ("Segoe UI", 10)
 MONO = ("Consolas", 11)
 
@@ -140,6 +145,8 @@ class SheetView(tk.Canvas):
     def __init__(self, parent):
         super().__init__(parent, bg=BG, highlightthickness=0)
         self.sheet = self.values = None
+        self.printing = False   # print version: all trackers (LP, wounds, bond, flags) blank for pencil marks
+        self.fixed_width = None  # draw at this width instead of the window width (PDF export)
         self.dirty = False      # sheet changed while the tab was hidden: draw when it becomes visible
         self._resize_job = None
         self._width = 0
@@ -218,6 +225,8 @@ class SheetView(tk.Canvas):
         left = lost if taken else count - lost  # taken: filled circles are the ones used up (wounds)
         self.text(x, y, label.upper(), 8, MUTED)
         value = ("TOT" if lost >= count else f"{lost}/{count}") if taken else (f"{left}/{count}" if key else str(count))
+        if self.printing and key:  # blank circles to tick off on paper
+            left, lost, value = 0, 0, f"max {count}"
         self.text(x + width, y, value, 10, WARN if taken and lost >= count else TEXT, anchor="ne", bold=True)
         per_row = max(1, int(width // 16))
         for i in range(count):
@@ -238,7 +247,7 @@ class SheetView(tk.Canvas):
 
     def flag(self, x, y, key):
         """Clickable ability flag: filled = available, empty = used."""
-        used = key in self.sheet.track.get("used", [])
+        used = self.printing or key in self.sheet.track.get("used", [])
         item = self.create_oval(x - 6, y - 6, x + 6, y + 6, outline=ACCENT, width=2, fill=BG if used else ACCENT)
         self.tag_bind(item, "<Button-1>", lambda _: self.track("used", key))
         self.tag_bind(item, "<Enter>", lambda _: self.configure(cursor="hand2"))
@@ -271,7 +280,7 @@ class SheetView(tk.Canvas):
         pot = spec.get("potential", {})
         attr_cap, skill_cap = v["caps"]
         m = 24
-        W = max(self.winfo_width(), 900)
+        W = self.fixed_width or max(self.winfo_width(), 900)
         col = (W - 3 * m) / 2
 
         # header
@@ -320,7 +329,8 @@ class SheetView(tk.Canvas):
         # dragon column
         x = 2 * m + col
         y = self.title(x, 75, col, "Drache")
-        if not has_dragon(sheet):  # campaign start: no dragon yet
+        blank = self.printing and not has_dragon(sheet)  # print version without dragon: empty form to fill in
+        if not has_dragon(sheet) and not blank:  # campaign start: no dragon yet
             self.create_rectangle(x, y + 4, x + col, y + 124, outline=BORDER, dash=(4, 4))
             self.text(x + col / 2, y + 44, "Noch kein Drache", 16, MUTED, SERIF, "center", bold=True)
             self.text(x + col / 2, y + 76, "Wähle im Editor eine Art, sobald ein Drache gezähmt ist.",
@@ -328,49 +338,76 @@ class SheetView(tk.Canvas):
             y = max(bottom_left, y + 140) + 12
             return self._draw_bond(sheet, v, m, W, y)
         fx = x
-        for label, value, share in [("Name", d.name, .22), ("Art", spec.get("name", d.species), .33),
-                                    ("Klasse", spec.get("cls", "?"), .15), ("Phase", v["phase"], .30)]:
-            self.field(fx, y, col * share, label, value)
+        header = [("Name", d.name, .22), ("Art", spec.get("name", d.species), .33),
+                  ("Klasse", spec.get("cls", "?"), .15), ("Phase", v["phase"], .30)]
+        for label, value, share in header:
+            self.field(fx, y, col * share, label, " " if blank else value)
             fx += col * share
         y += 50
         for i, attr in enumerate(DRAGON_ATTRS):
             limit = min(attr_cap, pot.get(attr, attr_cap))
-            self.stat(x + i * (col / 4), y, attr, d.attributes.get(attr, 0),
-                      f"Pot. {pot.get(attr, '?')}" if pot else f"max {limit}", w=col / 4 - 10)
+            sub = "Pot. ___" if blank else f"Pot. {pot.get(attr, '?')}" if pot else f"max {limit}"
+            self.stat(x + i * (col / 4), y, attr, "" if blank else d.attributes.get(attr, 0), sub, w=col / 4 - 10)
         y += 108
-        shot = (d.attributes.get("Sinne", 0) + d.training, f"Sinne {d.attributes.get('Sinne', 0)} + Training {d.training}")
+        if blank:
+            combat = [("Kampf", ("", "Kampfbasis + Training + Rüstung/Sattel"), "__"),
+                      ("Schuss", ("", "Sinne + Training"), "__"),
+                      ("Verteidigung", ("", "Tempo ÷ 2 (aufgerundet) + Rüstung"), None)]
+        else:
+            shot = (d.attributes.get("Sinne", 0) + d.training,
+                    f"Sinne {d.attributes.get('Sinne', 0)} + Training {d.training}")
+            combat = [("Kampf", v["dragon_attack"], v["dragon_melee_dmg"]), ("Schuss", shot, v["dragon_shot_dmg"]),
+                      ("Verteidigung", v["dragon_defense"], None)]
         third = col / 3
-        y = max(self.combat(x + i * third, y, third - 10, label, *value, dmg=dmg) for i, (label, value, dmg) in enumerate(
-            [("Kampf", v["dragon_attack"], v["dragon_melee_dmg"]), ("Schuss", shot, v["dragon_shot_dmg"]),
-             ("Verteidigung", v["dragon_defense"], None)])) + 14
+        y = max(self.combat(x + i * third, y, third - 10, label, *value, dmg=dmg)
+                for i, (label, value, dmg) in enumerate(combat)) + 14
         quarter = col / 4 - 10
-        y_lp = self.pips(x, y, "Lebenspunkte" + (f" · Zähigkeit {d.toughness}" if d.toughness else ""),
-                         v["dragon_lp"], half, key="dragon_lp")
-        y_sh = self.pips(x + col / 2, y, "Schüsse", v["shots"], quarter, color=SEA, key="shots")
+        if blank:  # LP depend on the dragon: write them in; at most 6 shots for any species
+            y_lp = self.write_in(x, y, "Lebenspunkte", half)
+            y_sh = self.pips(x + col / 2, y, "Schüsse", 6, quarter, color=SEA, key="shots")
+        else:
+            y_lp = self.pips(x, y, "Lebenspunkte" + (f" · Zähigkeit {d.toughness}" if d.toughness else ""),
+                             v["dragon_lp"], half, key="dragon_lp")
+            y_sh = self.pips(x + col / 2, y, "Schüsse", v["shots"], quarter, color=SEA, key="shots")
         self.text(x + col * 3 / 4, y, "TRAINING / ZW", 8, MUTED)
-        self.text(x + col * 3 / 4, y + 16, f"{d.training}  /  {spec.get('zw', '?')}", 16, TEXT, SERIF, bold=True)
+        self.text(x + col * 3 / 4, y + 16, "     /" if blank else f"{d.training}  /  {spec.get('zw', '?')}",
+                  16, TEXT, SERIF, bold=True)
         y_lp = self.pips(x, y_lp + 6, "Wunden (bei 0 LP)", WOUNDS, half, color=WARN, key="dragon_wounds", taken=True)
         y = max(y_lp, y_sh, y + 44) + 8
-        abilities = [(f"Grundschuss: {spec.get('shot', '–')}", ""), (f"Art: {spec.get('special', '–')}", ""),
-                     (f"Klasse: {spec.get('class_ability', '–')}", "")]
-        y_a = self.table(x, y, half, "Fähigkeiten  (● bereit  ○ gebraucht)", abilities,
+        get = lambda key: "" if blank else spec.get(key, "–")
+        abilities = [(f"Grundschuss: {get('shot')}", ""), (f"Art: {get('special')}", ""),
+                     (f"Klasse: {get('class_ability')}", "")]
+        y_a = self.table(x, y, half, "Fähigkeiten  (gebraucht: Kreis ausmalen)" if self.printing
+                         else "Fähigkeiten  (● bereit  ○ gebraucht)", abilities,
                          flags=(None, "special", "class"))
-        y_a = self.table(x, y_a + 10, half, "Ausrüstung", [slot("Rüstung", d.armor), slot("Sattel", d.saddle)])
+        armor = [("Rüstung:", ""), ("Sattel:", "")] if blank else [slot("Rüstung", d.armor), slot("Sattel", d.saddle)]
+        y_a = self.table(x, y_a + 10, half, "Ausrüstung", armor)
         yes = lambda flag: "ja" if flag else "nein"
-        traits = [(f"Fliegt {yes(spec.get('flies'))} · Schwimmt {yes(spec.get('swims'))} · "
-                   f"Reitbar {yes(spec.get('rideable'))}", ""),
-                  (f"Macke: {d.quirk or '–'}", ""), (f"Schwäche: {spec.get('weakness', '–')}", ""),
-                  (f"Lieblingsfutter: {spec.get('food', '–')}", "")]
+        moves = ("Fliegt ja / nein · Schwimmt ja / nein · Reitbar ja / nein" if blank else
+                 f"Fliegt {yes(spec.get('flies'))} · Schwimmt {yes(spec.get('swims'))} · "
+                 f"Reitbar {yes(spec.get('rideable'))}")
+        traits = [(moves, ""), (f"Macke: {'' if blank else d.quirk or '–'}", ""),
+                  (f"Schwäche: {get('weakness')}", ""), (f"Lieblingsfutter: {get('food')}", "")]
         y_q = self.table(x + col / 2, y, half, "Eigenheiten", traits)
-        y_q = self.table(x + col / 2, y_q + 10, half, "Verhalten", [(d.behavior or "–", "")])
+        behavior = [(" ", "")] * 3 if blank else [(d.behavior or "–", "")]
+        y_q = self.table(x + col / 2, y_q + 10, half, "Verhalten", behavior)
         y = max(bottom_left, y_a, y_q) + 12
         self._draw_bond(sheet, v, m, W, y)
 
+    def write_in(self, x, y, label, width):
+        """Empty box to write a value in by hand: current | max (print version)."""
+        self.text(x, y, label.upper(), 8, MUTED)
+        self.create_rectangle(x, y + 16, x + width, y + 46, outline=BORDER, fill=PANEL)
+        self.create_line(x + width * .62, y + 16, x + width * .62, y + 46, fill=BORDER)
+        self.text(x + 6, y + 19, "aktuell", 7, MUTED)
+        self.text(x + width * .62 + 6, y + 19, "max", 7, MUTED)
+        return y + 50
+
     def _draw_bond(self, sheet, v, m, W, y):
         """Bond track across the full width (only with a dragon), then rule warnings."""
-        if has_dragon(sheet):
+        if has_dragon(sheet) or self.printing:  # the print version always has the track to fill in
             y = self._bond_track(sheet, v, m, W, y)
-        for warning in check(sheet, v):
+        for warning in [] if self.printing else check(sheet, v):
             self.text(m, y, f"! {warning}", 9, WARN)
             y += 18
         self.configure(scrollregion=(0, 0, W, y + m))
@@ -381,12 +418,14 @@ class SheetView(tk.Canvas):
         for i in range(20):
             bx = m + i * box
             self.create_rectangle(bx + 2, y, bx + box - 2, y + 22, outline=BORDER,
-                                  fill=ACCENT if i < sheet.bond else PANEL, width=2 if i % 5 == 4 else 1)
+                                  fill=ACCENT if i < sheet.bond and not self.printing else PANEL,
+                                  width=2 if i % 5 == 4 else 1)
         for i, name in enumerate(BOND_TIERS[:4]):
-            self.text(m + (i * 5 + 2.5) * box, y + 28, name, 8,
-                      ACCENT if v["tier"] == i else MUTED, anchor="n")
-        self.text(W - m, y - 4, f"{sheet.bond}/20", 18, TEXT, SERIF, "ne", bold=True)
-        self.text(W - m, y + 26, f"Teamwork +{v['teamwork']} W6", 9, SEA, anchor="ne", bold=True)
+            self.text(m + (i * 5 + 2.5) * box, y + 28, f"{name} +{i} W6" if self.printing else name, 8,
+                      ACCENT if v["tier"] == i and not self.printing else MUTED, anchor="n")
+        self.text(W - m, y - 4, "     /20" if self.printing else f"{sheet.bond}/20", 18, TEXT, SERIF, "ne", bold=True)
+        self.text(W - m, y + 26, "Teamwork je Stufe" if self.printing else f"Teamwork +{v['teamwork']} W6",
+                  9, SEA, anchor="ne", bold=True)
         self.text(W - m - 20, y + 44, f"Rettung (−{BOND_SAVE_COST} Bindung, 1× pro Tag)", 9, MUTED, anchor="ne")
         self.flag(W - m - 7, y + 52, "bond_save")
         return y + 70
@@ -970,6 +1009,11 @@ class Overlay(tk.Tk):
     # --- read-only sheet and notes tabs
     def _build_view_tab(self):
         tab = ttk.Frame(self.tabs)
+        bar = ttk.Frame(tab, padding=(0, 0, 0, 6))
+        bar.pack(fill="x")
+        ttk.Label(bar, text="Druckversion: LP, Mut, Schüsse, Wunden, Bindung und Flags bleiben leer zum Ankreuzen.",
+                  style="Muted.TLabel").pack(side="left")
+        ttk.Button(bar, text="Als PDF exportieren", command=self.export_pdf, style="Accent.TButton").pack(side="right")
         self.view = SheetView(tab)
         tab.bind("<Map>", lambda _: self.view.draw_if_dirty())
         self.view.on_track = self.on_track
@@ -979,6 +1023,27 @@ class Overlay(tk.Tk):
         scroll.pack(side="right", fill="y")
         self.view.bind("<MouseWheel>", lambda e: self.view.yview_scroll(-e.delta // 120, "units"))
         return tab
+
+    def export_pdf(self, path=None):
+        """Print version of the character sheet as PDF (A4 landscape, light colours, blank trackers)."""
+        sheet = self.collect()
+        if not path:
+            name = "_".join(filter(None, [sheet.rider.name, sheet.dragon.name if has_dragon(sheet) else ""]))
+            path = filedialog.asksaveasfilename(defaultextension=".pdf", filetypes=[("PDF", "*.pdf")],
+                                                initialfile=f"{name or 'Charakterbogen'}_Charakterbogen.pdf")
+        if not path:
+            return
+        page = SheetView(self)  # never shown: drawn offscreen at a fixed width
+        page.printing, page.fixed_width = True, 1180
+        page.sheet, page.values = sheet, derive(sheet)
+        page.draw()
+        try:
+            canvas_to_pdf(page, path, PRINT_COLORS)
+            self.info.config(text=f"PDF gespeichert: {Path(path).name}")
+        except OSError as error:
+            messagebox.showerror("PDF", f"Konnte nicht speichern:\n{error}")
+        finally:
+            page.destroy()
 
     def _build_notes_tab(self):
         tab = ttk.Frame(self.tabs, padding=10)

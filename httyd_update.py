@@ -142,22 +142,46 @@ def download_and_prepare(url):
     return work, program, notes
 
 
+def _ps(path):
+    """Path as a single-quoted PowerShell string."""
+    return "'" + str(path).replace("'", "''") + "'"
+
+
 def launch_swap_and_restart(work, program):
-    """Start a small batch script that waits for this program to close, swaps exe and _internal, restarts.
-    The caller must quit right after this."""
-    script = work / "update.bat"
+    """Start a hidden PowerShell script that waits for this program to exit, swaps exe and _internal and
+    restarts it. A log is written; if the swap fails it is copied to daten/update_fehler.log and the
+    old version is started again. The caller must quit right after this."""
+    script, log = work / "update.ps1", work / "update.log"
+    exe_new, exe_app = program / EXE, APP_DIR / EXE
     script.write_text("\r\n".join([
-        "@echo off", "chcp 65001 >NUL",
-        ":wait",  # wait until the running program has released its files
-        f'tasklist /FI "PID eq {os.getpid()}" 2>NUL | find "{os.getpid()}" >NUL && '
-        "(ping -n 2 127.0.0.1 >NUL & goto wait)",  # 1 s pause; timeout.exe needs a console
-        f'robocopy "{program / "_internal"}" "{APP_DIR / "_internal"}" /MIR /NFL /NDL /NJH /NJS /NP >NUL',
-        f'copy /Y "{program / EXE}" "{APP_DIR / EXE}" >NUL',
-        f'start "" "{APP_DIR / EXE}"',
-        f'rmdir /S /Q "{work}"',
-    ]) + "\r\n", encoding="utf-8")
-    flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-    subprocess.Popen(["cmd", "/c", str(script)], creationflags=flags, close_fds=True)
+        "$ErrorActionPreference = 'Stop'",
+        f"Start-Transcript -Path {_ps(log)} | Out-Null",
+        "try {",
+        f"  Wait-Process -Id {os.getpid()} -Timeout 60 -ErrorAction SilentlyContinue",
+        "  Start-Sleep -Milliseconds 800",
+        # the exe can stay locked for a moment after exit (virus scanner): retry
+        "  $done = $false",
+        "  for ($i = 0; $i -lt 30 -and -not $done; $i++) {",
+        f"    try {{ Copy-Item -LiteralPath {_ps(exe_new)} -Destination {_ps(exe_app)} -Force; $done = $true }}",
+        "    catch { Start-Sleep -Milliseconds 500 }",
+        "  }",
+        "  if (-not $done) { throw 'Drachenreiter.exe ist noch gesperrt.' }",
+        f"  robocopy {_ps(program / '_internal')} {_ps(APP_DIR / '_internal')} /MIR /R:10 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null",
+        "  if ($LASTEXITCODE -ge 8) { throw \"robocopy Fehler $LASTEXITCODE\" }",
+        "  Stop-Transcript | Out-Null",
+        f"  Start-Process -FilePath {_ps(exe_app)} -WorkingDirectory {_ps(APP_DIR)}",
+        f"  Remove-Item -LiteralPath {_ps(work)} -Recurse -Force -ErrorAction SilentlyContinue",
+        "} catch {",
+        "  Write-Output $_",
+        "  Stop-Transcript | Out-Null",
+        f"  Copy-Item -LiteralPath {_ps(log)} -Destination {_ps(DATA_DIR / 'update_fehler.log')} -Force",
+        f"  Start-Process -FilePath {_ps(exe_app)} -WorkingDirectory {_ps(APP_DIR)}",
+        "}",
+    ]) + "\r\n", encoding="utf-8-sig")  # BOM: Windows PowerShell 5 then reads umlauts in paths correctly
+    # hidden: no window, and robocopy runs in the same invisible console instead of opening its own
+    subprocess.Popen(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden",
+                      "-File", str(script)], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def can_self_update():

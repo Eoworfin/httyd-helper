@@ -919,6 +919,9 @@ class Overlay(tk.Tk):
     # --- updates from GitHub releases
     def note_new_version(self):
         """After an update: say so once in the status line and remember the version."""
+        failed = DATA_DIR / "update_fehler.log"
+        if failed.exists():
+            self.info.config(text=f"Das letzte Update ist fehlgeschlagen, Details: {failed}")
         version, last = updater.current_version(), self.settings.get("last_version")
         if version.startswith("dev") or version == last:
             return
@@ -968,15 +971,33 @@ class Overlay(tk.Tk):
                                    "Eigene Arten, Items, Einstellungen und Charakterbögen bleiben erhalten.",
                                    parent=self):
             return
-        self.info.config(text=f"Lade Version {release['tag']} …")
-        self.update_idletasks()
-        try:
-            work, program, notes = updater.download_and_prepare(release["url"])
-            updater.launch_swap_and_restart(work, program)
-        except Exception as error:
-            messagebox.showerror("Update", f"Update fehlgeschlagen:\n{error}", parent=self)
-            return
-        self.destroy()  # the update script waits for this, swaps the files and restarts
+        self.info.config(text=f"Lade Version {release['tag']} herunter … (das Fenster bleibt bedienbar)")
+        result = {}
+
+        def work():  # download (~30 MB) and data merge in the background
+            try:
+                result["ok"] = updater.download_and_prepare(release["url"])
+            except Exception as error:
+                result["error"] = error
+
+        thread = threading.Thread(target=work, daemon=True)
+        thread.start()
+
+        def done():
+            if thread.is_alive():
+                return self.after(300, done)
+            if "error" in result:
+                self.info.config(text="Update fehlgeschlagen.")
+                return messagebox.showerror("Update", f"Update fehlgeschlagen:\n{result['error']}", parent=self)
+            work_dir, program, _ = result["ok"]
+            try:
+                updater.launch_swap_and_restart(work_dir, program)
+            except Exception as error:
+                return messagebox.showerror("Update", f"Update konnte nicht gestartet werden:\n{error}", parent=self)
+            messagebox.showinfo("Update", f"Version {release['tag']} ist bereit. Das Programm schliesst sich jetzt "
+                                          "und startet in wenigen Sekunden neu.", parent=self)
+            self.destroy()  # the update script waits for this, swaps the files and restarts
+        done()
 
     def about(self):
         messagebox.showinfo("Über", f"Drachenreiter von Berk  ·  Version {updater.current_version()}\n"

@@ -99,6 +99,16 @@ def merge_items(new_text, local_text):
             f'  "items": [\n{rows}\n  ]\n}}\n')
 
 
+def merge_enemies(new_text, local_text):
+    """New gegner.json as base, plus enemies only the local file has."""
+    new, local = json.loads(new_text), json.loads(local_text)
+    names = {e["name"] for e in new.get("gegner", [])}
+    rows = new.get("gegner", []) + [e for e in local.get("gegner", []) if e["name"] not in names]
+    lines = ",\n".join("    " + json.dumps(e, ensure_ascii=False) for e in rows)
+    return (f'{{\n  "_info": {json.dumps(new.get("_info", ""), ensure_ascii=False)},\n'
+            f'  "gegner": [\n{lines}\n  ]\n}}\n')
+
+
 def merge_data(new_dir, data_dir=DATA_DIR):
     """Bring the data of a new release into data_dir without losing local additions. Returns notes."""
     data_dir.mkdir(parents=True, exist_ok=True)
@@ -116,6 +126,10 @@ def merge_data(new_dir, data_dir=DATA_DIR):
             merged = merge_items(new_text, target.read_text(encoding="utf-8"))
             kept = len(json.loads(merged)["items"]) - len(json.loads(new_text)["items"])
             notes.append(f"Items aktualisiert, {kept} eigene Items behalten")
+        elif target.exists() and new_file.name == "gegner.json":
+            merged = merge_enemies(new_text, target.read_text(encoding="utf-8"))
+            kept = len(json.loads(merged)["gegner"]) - len(json.loads(new_text)["gegner"])
+            notes.append(f"Gegner aktualisiert, {kept} eigene Gegner behalten")
         elif target.exists() and new_file.name == "settings.json":
             continue  # personal settings stay
         else:

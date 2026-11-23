@@ -37,7 +37,7 @@ jobs:
         run: |
           $data = "dist/Drachenreiter/daten"
           New-Item -ItemType Directory -Force -Path $data | Out-Null
-          Copy-Item Drachenliste.md, items.json, HTTYD_Regelwerk_Konzept.md, sigrun.json -Destination $data
+          Copy-Item Drachenliste.md, items.json, gegner.json, HTTYD_Regelwerk_Konzept.md, sigrun.json -Destination $data
           Compress-Archive -Path dist/Drachenreiter -DestinationPath Drachenreiter-windows.zip
 
       - uses: actions/upload-artifact@v4

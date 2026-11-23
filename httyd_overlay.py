@@ -17,7 +17,8 @@ from httyd_pdf import canvas_to_pdf
 from httyd_sheet import (BOND_TIERS, COSTS, DRAGON_ATTRS, ITEM_TYPES, ORIGIN_BONUS, SKILLS, Dragon, Rider, Sheet,
                          ROLE_LEVEL, add_item, add_species, attr_limit, check, derive, has_dragon, role_attrs, skill_limit, example, fmt_mods, load, load_items, load_species,
                          parse_mods, save, upgrade_cost, TOUGH_LP, rest, tough_limit, WOUNDS, BOND_SAVE_COST,
-                         APP_DIR, DATA_DIR)
+                         APP_DIR, DATA_DIR, ENEMY_TYPES, ZONES, load_enemies, save_enemy,
+                         delete_enemy)
 
 RIDER_ATTRS = ["Kraft", "Geschick", "Verstand", "Herz"]
 ORIGINS = ["Berker Wikinger", "Schmiedelehrling", "Drachenjäger-Überläufer", "Ausgestossener (Outcast)", "Handelsfahrer"]
@@ -97,7 +98,8 @@ def apply_dark_theme(root):
 
 RULES_NAME = "HTTYD_Regelwerk_Konzept.md"
 SETTINGS_FILE = DATA_DIR / "settings.json"
-DEFAULT_SETTINGS = {"free_edit": False, "topmost": False, "start_xp": 24, "update_check": True}
+DEFAULT_SETTINGS = {"free_edit": False, "topmost": False, "start_xp": 24, "update_check": True,
+                    "gamemaster": False}
 
 
 def load_settings():
@@ -463,6 +465,7 @@ class Overlay(tk.Tk):
         self.free_edit = tk.BooleanVar(value=self.settings["free_edit"])
         self.topmost = tk.BooleanVar(value=self.settings["topmost"])
         self.attributes("-topmost", self.topmost.get())
+        self.gamemaster = tk.BooleanVar(value=self.settings["gamemaster"])
         self.start_xp = tk.StringVar(value=str(self.settings["start_xp"]))
         self.start_xp.trace_add("write", lambda *_: self.update_mode())
 
@@ -474,6 +477,8 @@ class Overlay(tk.Tk):
         self.tabs.add(self._build_notes_tab(), text="Notizen")
         self.tabs.add(self._build_list_tab(), text="Drachenliste")
         self.tabs.add(self._build_items_tab(), text="Items")
+        self.enemy_tab = self._build_enemy_tab()
+        self.tabs.add(self.enemy_tab, text="Gegner")  # hidden unless the game master view is on
         self.tabs.add(self._build_rules_tab(), text="Regeln")
         self.update_mode()
         self.set_sheet(load(path) if path else example(), path)
@@ -907,6 +912,13 @@ class Overlay(tk.Tk):
         ttk.Label(card, text="Standard 24 (entspricht 2 Attributen auf 2 + 4 Fertigkeiten auf 1)",
                   style="Card.TLabel", foreground=MUTED, wraplength=380, justify="left").grid(row=4, column=0, sticky="w")
 
+        card = self._group(win, "Spielleitung")
+        ttk.Checkbutton(card, text="Spielleiter-Ansicht", variable=self.gamemaster, style="Card.TCheckbutton",
+                        command=self.update_mode).grid(row=0, column=0, sticky="w")
+        ttk.Label(card, text="Zeigt den Reiter «Gegner» mit allen Werte-Blöcken. Vor den Spielern ausschalten.",
+                  style="Card.TLabel", foreground=MUTED, wraplength=380, justify="left").grid(row=1, column=0,
+                                                                                         sticky="w")
+
         card = self._group(win, "Updates")
         self.update_check = tk.BooleanVar(value=self.settings.get("update_check", True))
         ttk.Checkbutton(card, text="Beim Start nach neuer Version suchen", variable=self.update_check,
@@ -1028,7 +1040,8 @@ class Overlay(tk.Tk):
 
     def update_mode(self):
         """Apply and persist settings, show the edit mode in the toolbar."""
-        self.settings.update(free_edit=self.free_edit.get(), topmost=self.topmost.get())
+        self.settings.update(free_edit=self.free_edit.get(), topmost=self.topmost.get(),
+                             gamemaster=self.gamemaster.get())
         if hasattr(self, "update_check"):
             self.settings["update_check"] = self.update_check.get()
         if hasattr(self, "start_xp") and self.start_xp.get().isdigit():
@@ -1038,6 +1051,12 @@ class Overlay(tk.Tk):
         except OSError:
             pass
         self.attributes("-topmost", self.topmost.get())
+        if hasattr(self, "enemy_tab"):
+            hidden = self.tabs.tab(self.enemy_tab, "state") == "hidden"
+            if self.gamemaster.get() and hidden:
+                self.tabs.add(self.enemy_tab)  # restores the tab at its old position
+            elif not self.gamemaster.get() and not hidden:
+                self.tabs.hide(self.enemy_tab)
         free = self.free_edit.get()
         self.mode.config(text="● Freies Editieren" if free else "● EP-Modus",
                          foreground=WARN if free else MUTED)
@@ -1415,6 +1434,236 @@ class Overlay(tk.Tk):
         self.species_box.configure(values=sorted(self.species))
         self.fill_list()
         self.info.config(text=f"Art «{data['name']}» in Drachenliste.md gespeichert.")
+
+    # --- enemies (game master view, data in gegner.json)
+    def _build_enemy_tab(self):
+        self.enemies = load_enemies()
+        tab = ttk.Frame(self.tabs, padding=10)
+        bar = ttk.Frame(tab)
+        bar.pack(fill="x", pady=(0, 10))
+        ttk.Label(bar, text="Suche", style="Muted.TLabel").pack(side="left")
+        self.enemy_search = tk.StringVar()
+        ttk.Entry(bar, textvariable=self.enemy_search, width=22).pack(side="left", padx=4)
+        self.enemy_kind = tk.StringVar(value="Alle")
+        ttk.Label(bar, text="Typ", style="Muted.TLabel").pack(side="left", padx=(16, 0))
+        ttk.Combobox(bar, values=["Alle", *ENEMY_TYPES], textvariable=self.enemy_kind, width=11,
+                     state="readonly").pack(side="left", padx=4)
+        for var in (self.enemy_search, self.enemy_kind):
+            var.trace_add("write", lambda *_: self.debounce("enemies", self.fill_enemies))
+        ttk.Button(bar, text="+ Neuer Gegner", command=self.new_enemy, style="Accent.TButton").pack(side="right")
+        ttk.Button(bar, text="Bearbeiten", command=self.edit_enemy).pack(side="right", padx=6)
+        ttk.Button(bar, text="Löschen", command=self.remove_enemy).pack(side="right")
+        ttk.Button(bar, text="Neu laden", command=self.reload_enemies).pack(side="right", padx=6)
+
+        body = ttk.Frame(tab)
+        body.pack(fill="both", expand=True)
+        body.columnconfigure(0, weight=1)
+        body.rowconfigure(0, weight=1)
+        cols = ["Name", "Typ", "LP", "VW", "Initiative", "Zone"]
+        self.enemy_tree = ttk.Treeview(body, columns=cols, show="headings", selectmode="browse")
+        for col, width in zip(cols, [220, 80, 40, 40, 90, 95]):
+            self.enemy_tree.heading(col, text=col)
+            self.enemy_tree.column(col, width=width, minwidth=width, stretch=col == "Name",
+                                   anchor="w" if width > 60 else "center")
+        self.enemy_tree.tag_configure("odd", background=ROW_ALT)
+        self.enemy_tree.bind("<<TreeviewSelect>>", lambda _: self.show_enemy())
+        self.enemy_tree.bind("<Double-1>", lambda _: self.edit_enemy())
+        self.enemy_tree.grid(row=0, column=0, sticky="nsew")
+        self.enemy_card = tk.Text(body, width=58, wrap="word", bg=PANEL, fg=TEXT, bd=0, padx=14, pady=12,
+                                  highlightthickness=0, font=FONT, cursor="arrow")
+        self.enemy_card.grid(row=0, column=1, sticky="nsew", padx=(10, 0))
+        card = self.enemy_card
+        card.tag_configure("title", font=(SERIF[0], 15, "bold"), foreground=ACCENT, spacing3=2)
+        card.tag_configure("sub", foreground=MUTED, spacing3=8)
+        card.tag_configure("head", font=(FONT[0], 9, "bold"), foreground=ACCENT, spacing1=10, spacing3=2)
+        card.tag_configure("bold", font=(FONT[0], 10, "bold"))
+        card.tag_configure("muted", foreground=MUTED)
+        ttk.Label(tab, text="Sortiert nach LP. Schaden = Grundschaden + jeder Erfolg über der Verteidigung. "
+                            "Richtwerte zur Gruppengrösse: siehe Regelwerk, Abschnitt Gegner.",
+                  style="Muted.TLabel").pack(anchor="w", pady=(6, 0))
+        self.fill_enemies()
+        return tab
+
+    def fill_enemies(self, select=None):
+        query, kind = self.enemy_search.get().lower(), self.enemy_kind.get()
+        rows = [e for e in self.enemies.values()
+                if (kind == "Alle" or e.get("typ") == kind) and query in (e["name"] + " " + e.get("text", "")).lower()]
+        rows.sort(key=lambda e: (e.get("lp", 0), e["name"]))
+        self.enemy_tree.delete(*self.enemy_tree.get_children())
+        for n, e in enumerate(rows):
+            self.enemy_tree.insert("", "end", iid=e["name"], tags=("odd",) if n % 2 else (),
+                                   values=[e["name"], e.get("typ", ""), e.get("lp", ""), e.get("vw", ""),
+                                           e.get("ini", ""), e.get("zone", "")])
+        target = select if select in self.enemies else (rows[0]["name"] if rows else None)
+        if target and self.enemy_tree.exists(target):
+            self.enemy_tree.selection_set(target)
+            self.enemy_tree.see(target)
+        else:
+            self.show_enemy()
+
+    def selected_enemy(self):
+        selected = self.enemy_tree.selection()
+        return self.enemies.get(selected[0]) if selected else None
+
+    def show_enemy(self):
+        """Stat block of the selected enemy in the side card."""
+        e, card = self.selected_enemy(), self.enemy_card
+        card.config(state="normal")
+        card.delete("1.0", "end")
+        if e:
+            card.insert("end", e["name"] + "\n", "title")
+            card.insert("end", f"{e.get('typ', '')}\n", "sub")
+            card.insert("end", "LP ", "muted")
+            card.insert("end", f"{e.get('lp', '–')}", "bold")
+            card.insert("end", "    Verteidigung ", "muted")
+            card.insert("end", f"{e.get('vw', '–')}", "bold")
+            card.insert("end", "    Initiative ", "muted")
+            card.insert("end", f"{e.get('ini', '–')}", "bold")
+            card.insert("end", "\nZone ", "muted")
+            card.insert("end", f"{e.get('zone', '–')}\n", "bold")
+            card.insert("end", "ANGRIFFE\n", "head")
+            for a in e.get("angriffe", []):
+                card.insert("end", f"{a['name']}  ", "bold")
+                card.insert("end", f"{a['w6']} W6 · Grundschaden {a['gs']} · {a.get('art', '')}\n")
+                if a.get("effekt"):
+                    card.insert("end", f"    {a['effekt']}\n", "muted")
+            for key, head in [("faehigkeit", "FÄHIGKEIT"), ("schwaeche", "SCHWÄCHE"), ("beute", "BEUTE"),
+                              ("text", "BESCHREIBUNG")]:
+                if e.get(key):
+                    card.insert("end", head + "\n", "head")
+                    card.insert("end", e[key] + "\n")
+        else:
+            card.insert("end", "Kein Gegner ausgewählt.", "muted")
+        card.config(state="disabled")
+
+    def reload_enemies(self, select=None):
+        self.enemies = load_enemies()
+        self.fill_enemies(select)
+
+    def new_enemy(self):
+        self.enemy_form()
+
+    def edit_enemy(self):
+        enemy = self.selected_enemy()
+        if enemy:
+            self.enemy_form(enemy)
+
+    def remove_enemy(self):
+        enemy = self.selected_enemy()
+        if enemy and messagebox.askyesno("Gegner löschen", f"«{enemy['name']}» aus gegner.json löschen?",
+                                         parent=self):
+            try:
+                delete_enemy(enemy["name"])
+            except (OSError, ValueError) as err:
+                return messagebox.showerror("Nicht gelöscht", str(err), parent=self)
+            self.reload_enemies()
+            self.info.config(text=f"Gegner «{enemy['name']}» gelöscht.")
+
+    @staticmethod
+    def attacks_text(attacks):
+        return "\n".join(" | ".join(str(a.get(k, "")) for k in ("name", "w6", "gs", "art", "effekt")).rstrip(" |")
+                         for a in attacks)
+
+    @staticmethod
+    def parse_attacks(text):
+        """One attack per line: Name | W6 | Grundschaden | Art | Effekt (Art and Effekt optional)."""
+        attacks = []
+        for n, line in enumerate(text.splitlines(), start=1):
+            if not line.strip():
+                continue
+            cells = [c.strip() for c in line.split("|")] + ["", "", "", ""]
+            if not cells[0] or not cells[1].isdigit() or not cells[2].isdigit():
+                raise ValueError(f"Angriff in Zeile {n}: «Name | W6 | Grundschaden | Art | Effekt», "
+                                 "W6 und Grundschaden als Zahl.")
+            art = cells[3] if cells[3] in ("Nahkampf", "Fernkampf", "Schuss") else "Nahkampf"
+            attacks.append({"name": cells[0], "w6": int(cells[1]), "gs": int(cells[2]), "art": art,
+                            "effekt": " | ".join(c for c in cells[4:] if c)})
+        if not attacks:
+            raise ValueError("Mindestens ein Angriff fehlt.")
+        return attacks
+
+    def enemy_form(self, enemy=None):
+        """Create (from a template) or edit an enemy; saved straight into gegner.json."""
+        win = tk.Toplevel(self, bg=BG, padx=16, pady=14)
+        win.title("Gegner bearbeiten" if enemy else "Neuer Gegner")
+        win.transient(self)
+        win.grab_set()
+        win.columnconfigure(1, weight=1)
+        ttk.Label(win, text=("GEGNER BEARBEITEN" if enemy else "NEUER GEGNER"), style="Title.TLabel",
+                  background=BG).grid(row=0, column=0, columnspan=4, sticky="w", pady=(0, 8))
+        vars_, texts = {}, {}
+        row = 1
+        if not enemy:
+            ttk.Label(win, text="Vorlage").grid(row=row, column=0, sticky="w", padx=(0, 10), pady=2)
+            template = tk.StringVar(value="– leer –")
+            box = ttk.Combobox(win, textvariable=template, state="readonly", width=40,
+                               values=["– leer –", *sorted(self.enemies, key=str.lower)])
+            box.grid(row=row, column=1, columnspan=3, sticky="w", pady=2)
+            box.bind("<<ComboboxSelected>>", lambda _: fill(self.enemies.get(template.get()), copy=True))
+            row += 1
+        short = [("name", "Name", "entry", None), ("typ", "Typ", "combo", ENEMY_TYPES),
+                 ("lp", "LP", "spin", 200), ("vw", "Verteidigung", "spin", 10),
+                 ("ini", "Initiative (z. B. 3 W6)", "entry", None), ("zone", "Zone", "combo", ZONES)]
+        for i, (key, label, kind, option) in enumerate(short):
+            r, c = row + i // 2, (i % 2) * 2
+            ttk.Label(win, text=label).grid(row=r, column=c, sticky="w", padx=(0 if c == 0 else 16, 10), pady=2)
+            var = vars_[key] = tk.StringVar()
+            widget = (ttk.Combobox(win, values=option, textvariable=var, state="readonly", width=14) if kind == "combo"
+                      else ttk.Spinbox(win, from_=0, to=option, width=6, textvariable=var) if kind == "spin"
+                      else ttk.Entry(win, textvariable=var, width=30 if key == "name" else 16))
+            widget.grid(row=r, column=c + 1, sticky="w", pady=2)
+        row += (len(short) + 1) // 2
+        multi = [("angriffe", "Angriffe\nName | W6 | GS | Art | Effekt", 4), ("faehigkeit", "Fähigkeit", 2),
+                 ("schwaeche", "Schwäche", 2), ("beute", "Beute", 1), ("text", "Beschreibung", 3)]
+        for key, label, height in multi:
+            ttk.Label(win, text=label, justify="left").grid(row=row, column=0, sticky="nw", padx=(0, 10), pady=(6, 2))
+            text = texts[key] = tk.Text(win, height=height, width=70, wrap="word", bg=FIELD, fg=TEXT, bd=0,
+                                        insertbackground=TEXT, highlightthickness=1, highlightbackground=BORDER,
+                                        highlightcolor=ACCENT, font=FONT, padx=6, pady=4)
+            text.grid(row=row, column=1, columnspan=3, sticky="ew", pady=(6, 2))
+            row += 1
+
+        def fill(source, copy=False):
+            source = source or {"typ": "Mensch", "lp": 8, "vw": 1, "ini": "2 W6",
+                                "zone": "Boden", "angriffe": [{"name": "Angriff", "w6": 3, "gs": 2,
+                                                               "art": "Nahkampf"}]}
+            for key, var in vars_.items():
+                var.set(str(source.get(key, "")))
+            if copy and source.get("name"):
+                vars_["name"].set(source["name"] + " (Variante)")
+            for key, text in texts.items():
+                text.delete("1.0", "end")
+                value = source.get(key, "")
+                text.insert("1.0", self.attacks_text(value) if key == "angriffe" else value)
+
+        fill(enemy)
+        error = ttk.Label(win, foreground=WARN)
+        error.grid(row=row, column=0, columnspan=4, sticky="w", pady=(6, 0))
+
+        def submit():
+            data = {key: var.get().strip() for key, var in vars_.items()}
+            data.update({key: text.get("1.0", "end").strip() for key, text in texts.items()})
+            try:
+                if not data["name"]:
+                    raise ValueError("Name fehlt.")
+                data["lp"], data["vw"] = to_int(data["lp"], -1), to_int(data["vw"], -1)
+                if data["lp"] < 1 or data["vw"] < 0:
+                    raise ValueError("LP (ab 1) und Verteidigung (ab 0) als Zahl eingeben.")
+                data["angriffe"] = self.parse_attacks(data["angriffe"])
+                order = ["name", "typ", "lp", "vw", "ini", "zone", "angriffe",
+                         "faehigkeit", "schwaeche", "beute", "text"]
+                save_enemy({k: data[k] for k in order}, enemy["name"] if enemy else None)
+            except (ValueError, OSError) as err:
+                return error.config(text=str(err))
+            win.destroy()
+            self.reload_enemies(data["name"])
+            self.info.config(text=f"Gegner «{data['name']}» in gegner.json gespeichert.")
+
+        buttons = ttk.Frame(win)
+        buttons.grid(row=row + 1, column=0, columnspan=4, sticky="e", pady=(10, 0))
+        ttk.Button(buttons, text="Abbrechen", command=win.destroy).pack(side="right")
+        ttk.Button(buttons, text="Speichern", command=submit, style="Accent.TButton").pack(side="right", padx=6)
+        win.bind("<Escape>", lambda _: win.destroy())
 
     # --- dragon list tab
     def _build_list_tab(self):

@@ -263,6 +263,54 @@ def add_item(item):
     ITEMS_FILE.write_text(f'{{\n  "_info": {info},\n  "items": [\n{rows}\n  ]\n}}\n', encoding="utf-8")
 
 
+ENEMY_FILE = DATA_DIR / "gegner.json"
+ENEMY_TYPES = ["Mensch", "Drache", "Schiff", "Schwarm", "Sonstiges"]
+ZONES = ["Unterwasser", "Boden", "Tief", "Hoch", "Wolken"]
+
+
+def load_enemies():
+    """All enemies from gegner.json as {name: enemy} (cached, read-only)."""
+    return _cached(ENEMY_FILE, _parse_enemies)
+
+
+def _parse_enemies(text):
+    try:
+        data = json.loads(text) if text else {}
+    except ValueError:
+        return {}
+    return {e["name"]: e for e in data.get("gegner", [])}
+
+
+def dump_enemies(info, enemies):
+    """gegner.json text with one enemy per line (readable diffs, same style as items.json)."""
+    rows = ",\n".join("    " + json.dumps(e, ensure_ascii=False) for e in enemies)
+    return f'{{\n  "_info": {json.dumps(info, ensure_ascii=False)},\n  "gegner": [\n{rows}\n  ]\n}}\n'
+
+
+def save_enemy(enemy, old_name=None):
+    """Add or replace an enemy (old_name: the entry being edited, may be renamed)."""
+    try:
+        data = json.loads(ENEMY_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        data = {"_info": "Gegner für die Spielleitung.", "gegner": []}
+    rows = data.setdefault("gegner", [])
+    taken = {e["name"].lower() for e in rows if e["name"] != old_name}
+    if enemy["name"].lower() in taken:
+        raise ValueError(f"Gegner '{enemy['name']}' gibt es schon.")
+    index = next((i for i, e in enumerate(rows) if e["name"] == old_name), None)
+    if index is None:
+        rows.append(enemy)
+    else:
+        rows[index] = enemy
+    ENEMY_FILE.write_text(dump_enemies(data.get("_info", ""), rows), encoding="utf-8")
+
+
+def delete_enemy(name):
+    data = json.loads(ENEMY_FILE.read_text(encoding="utf-8"))
+    data["gegner"] = [e for e in data.get("gegner", []) if e["name"] != name]
+    ENEMY_FILE.write_text(dump_enemies(data.get("_info", ""), data["gegner"]), encoding="utf-8")
+
+
 def add_species(row):
     """Insert a new species row (list of 17 cells) after the last row of the table in Drachenliste.md."""
     if row[0].lower() in (name.lower() for name in load_species()):

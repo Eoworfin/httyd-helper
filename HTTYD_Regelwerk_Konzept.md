@@ -313,7 +313,7 @@ Verbandszeug oder Heilkräuter geben Vorteil. Wer selbst auf 0 LP ist, kann sich
 - **Training** (Drache): zählt bei allen gelernten Manövern zum Attribut.
 - **Rast** (1× pro Tag, Nachtruhe): Spezialfähigkeiten und Bindungs-Rettung wieder bereit, Schüsse und Mut voll. Wer gegessen hat, heilt: Reiter und Drache je Zähigkeit + 2 LP. Tote bleiben tot.
 - **Proviant:** Pro Tag isst jedes Duo 1 Proviant (Tagesration für Reiter und Drache; ein Fischkorb zählt auch). Ohne Proviant wird es eine **brotlose Nacht**: Die Rast setzt Fähigkeiten, Schüsse und Mut trotzdem zurück, aber niemand heilt, und Reiter und Drache verlieren je 1 LP (nicht unter 1). Jeder Reiter startet mit 3 Proviant; Nachschub gibt es im Dorf, beim Händler oder mit Angelzeug.
-- **Im Werkzeug** hakt man auf dem Charakterbogen LP, Mut, Schüsse und Wunden ab und markiert gebrauchte Spezialfähigkeiten. Das Flag «Rettung» bei der Bindung zieht 1 Bindung ab. «Rasten» isst 1 Proviant aus dem Inventar und heilt, «Brotlose Nacht» rastet ohne Essen. «Als PDF exportieren» erstellt eine Druckversion (A4 quer), bei der alle Kreise, die Bindung und die Flags leer sind.
+- **Im Werkzeug** hakt man auf dem Charakterbogen LP, Mut, Schüsse und Wunden ab und markiert gebrauchte Spezialfähigkeiten. Das Flag «Rettung» bei der Bindung zieht 1 Bindung ab. «Rasten» isst 1 Proviant aus dem Inventar und heilt, «Brotlose Nacht» rastet ohne Essen. «Als PDF exportieren» erstellt eine Druckversion (A4 quer), bei der alle Kreise, die Bindung und die Flags leer sind. Mit der **Spielleiter-Ansicht** (Einstellungen) erscheint der Reiter «Gegner»: 10 Werte-Blöcke (`gegner.json`, Richtwerte siehe Gegner-Tabelle unten), neue Gegner lassen sich aus einer Vorlage ableiten.
 
 **Ausrüstung:** Alle 67 Items stehen in `items.json` (Werkzeug: Tab «Items») mit Typ, Besitzer und Modifikatoren: 20 Waffen, 14 Rüstungen, 9 Sättel und 24 sonstige Dinge, von Alltagsware bis zu seltenen Stücken wie Gronckel-Eisen. Modifikatoren wirken nur ausgerüstet; Verbrauchsgüter (Proviant, Verbandszeug, Gegengift, Zipper-Gas-Flasche) werden beim Benutzen aus dem Inventar gestrichen.
 
@@ -393,9 +393,27 @@ Sigrun und ihr Tödlicher Nadder Sturmspitz auf Stufe 1. Datei: `sigrun.json` (�
 
 Faustregel: ein Jägerschiff pro Duo ist ein fairer Kampf, eines mehr ist gefährlich.
 
+**Gegner-Richtwerte (Simulation):** Wie viele Gegner einer Sorte schaffen 3 Duos noch sicher (mind. 90 % Sieg, höchstens 15 % Todesfälle)? «Zu Fuss» = Stufe 1 ohne Drachen, «8» = 8 oder mehr, «0» = schon einer ist zu viel.
+
+| Gegner | zu Fuss | St. 1 | St. 3 | St. 6 | St. 9 | St. 12 | Einsatz |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Drachenjäger-Schläger | 4 | 6 | 8 | 8 | 8 | 8 | Kanonenfutter, vor allem ohne Drachen |
+| Bola-Werfer | 4 | 4 | 8 | 8 | 8 | 8 | Unterstützung, raubt Aktionen |
+| Wilder Schrecken-Schwarm | 5 | 3 | 8 | 8 | 8 | 8 | erster Luftkampf |
+| Outcast-Plünderer | 2 | 2 | 6 | 8 | 8 | 8 | Stufe 1–2 |
+| Netz-Trupp | 2 | 2 | 4 | 7 | 8 | 8 | Stufe 2–4 |
+| Berserker-Krieger | 1 | 2 | 4 | 8 | 8 | 8 | Stufe 2–4, gefährlich am Boden |
+| Jägerschiff | 1 | 1 | 2 | 4 | 8 | 8 | Stufe 4–6 |
+| Wilder Riesenhafter Albtraum | 0 | 0 | 1 | 3 | 7 | 8 | Stufe 5–7 |
+| Drachenjäger-Flaggschiff | 0 | 0 | 0 | 0* | 1 | 2 | Boss für Stufe 6–9 |
+| Brüllender Tod | 0 | 0 | 0 | 0 | 0 | 1 | Endboss ab Stufe 11 |
+
+\* Auf Stufe 6 gewinnen 3 Duos gegen ein Flaggschiff fast immer, aber in 18 % der Kämpfe stirbt jemand. Brüllender Tod auf Stufe 9: 45 % Sieg. Gemischte Gruppen sind nicht simuliert.
+
 **Nächste Schritte**
 
 - [x] Vollständige Arten-Liste mit Werten (`Drachenliste.md`)
-- [ ] Weitere Gegner-Blöcke: Drachenjäger, Outcasts, Alpha-Drachen (Jägerschiff steht)
+- [x] 10 Gegner-Blöcke (`gegner.json`, Reiter «Gegner» im Werkzeug)
+- [x] Gegner-Werte per Simulation gegenprüfen
 - [ ] Druckbarer Charakterbogen
 - [ ] Testrunde spielen und Würfelbalance prüfen

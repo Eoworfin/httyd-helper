@@ -5,7 +5,6 @@ Needs httyd_sheet.py and Drachenliste.md in the same folder (tkinter ships with 
 """
 import sys
 import tkinter as tk
-import tkinter.font as tkfont
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
@@ -39,33 +38,9 @@ ACCENT_DARK, ACCENT_LIGHT = "#b8611f", "#f0943f"
 # print colours for the PDF: white paper, dark ink, backgrounds left blank (None)
 PRINT_COLORS = {BG: "#ffffff", PANEL: "#ffffff", ROW_ALT: None, FIELD: "#f1ece3", BORDER: "#8f8578", TEXT: "#1b1b1b",
                 MUTED: "#5f574e", ACCENT: "#9c4f16", WARN: "#a3352a", SEA: "#3b6b64"}
-# Bundled fonts (SIL OFL, folder fonts/): Alegreya Sans for text, Crimson Text for headings and values,
-# Uncial Antiqua for titles. resolve_fonts() falls back to system fonts if they cannot be loaded.
-FONT = ("Alegreya Sans", 11)
-SERIF = ("Crimson Text", 12)
-TITLE = ("Uncial Antiqua", 14)
+FONT = ("Segoe UI", 10)
+SERIF = ("Georgia", 11)
 MONO = ("Consolas", 11)
-FALLBACK = {"Alegreya Sans": ("Segoe UI", 10), "Crimson Text": ("Georgia", 11), "Uncial Antiqua": ("Georgia", 14)}
-
-
-def register_fonts():
-    """Make the bundled fonts available to this process only (Windows); other systems use installed fonts."""
-    folder = Path(getattr(sys, "_MEIPASS", APP_DIR)) / "fonts"
-    if sys.platform != "win32" or not folder.is_dir():
-        return
-    import ctypes
-    for file in folder.glob("*.ttf"):
-        ctypes.windll.gdi32.AddFontResourceExW(str(file), 0x10, 0)  # 0x10 = FR_PRIVATE
-
-
-register_fonts()
-
-
-def resolve_fonts(root):
-    """Swap in system fonts for any bundled font Tk cannot find (needs an existing Tk root)."""
-    global FONT, SERIF, TITLE
-    have = set(tkfont.families(root))
-    FONT, SERIF, TITLE = (font if font[0] in have else FALLBACK[font[0]] for font in (FONT, SERIF, TITLE))
 
 
 def apply_dark_theme(root):
@@ -318,7 +293,7 @@ class SheetView(tk.Canvas):
         # title and level / XP box only on paper; on screen they sit in the fixed bar above the sheet
         top = 75 if self.printing else 14
         if self.printing:
-            self.text(W / 2, 10, "Drachenreiter von Berk", 22, ACCENT, TITLE, "n")
+            self.text(W / 2, 14, "DRACHENREITER VON BERK", 18, ACCENT, SERIF, "n", bold=True)
             self.text(W / 2, 44, "Charakterbogen", 9, MUTED, anchor="n")
             bw, bx = 170, W - m - 170  # like the DnD class & level box
             self.create_rectangle(bx, 8, bx + bw, 58, outline=ACCENT, fill=PANEL, width=2)
@@ -469,7 +444,6 @@ class SheetView(tk.Canvas):
 class Overlay(tk.Tk):
     def __init__(self, path=None):
         super().__init__()
-        resolve_fonts(self)
         self.title(f"Drachenreiter von Berk  ·  {updater.current_version()}")  # version from the release build
         self.geometry("1280x780")
         apply_dark_theme(self)
@@ -517,7 +491,7 @@ class Overlay(tk.Tk):
     def _build_toolbar(self):
         bar = ttk.Frame(self, padding=(10, 10, 10, 6))
         bar.pack(fill="x")
-        ttk.Label(bar, text="Drachenreiter von Berk", font=TITLE,
+        ttk.Label(bar, text="Drachenreiter von Berk", font=(SERIF[0], 14, "bold"),
                   foreground=ACCENT).pack(side="left", padx=(0, 16))
         menu_button = ttk.Menubutton(bar, text="☰  Menü")
         menu = tk.Menu(menu_button, tearoff=False, bg=PANEL, fg=TEXT, activebackground=ACCENT,
@@ -1257,9 +1231,9 @@ class Overlay(tk.Tk):
         view.configure(yscrollcommand=scroll.set)
         view.pack(side="left", fill="both", expand=True)
         scroll.pack(side="right", fill="y")
-        tags = {"h1": dict(font=(TITLE[0], 22), foreground=ACCENT, spacing3=8),
-                "h2": dict(font=(SERIF[0], SERIF[1] + 5, "bold"), foreground=ACCENT, spacing1=16, spacing3=6),
-                "bold": dict(font=(FONT[0], FONT[1], "bold")),
+        tags = {"h1": dict(font=(SERIF[0], 20, "bold"), foreground=ACCENT, spacing3=8),
+                "h2": dict(font=(SERIF[0], 15, "bold"), foreground=ACCENT, spacing1=16, spacing3=6),
+                "bold": dict(font=(FONT[0], 10, "bold")),
                 "table": dict(font=MONO, lmargin1=8, wrap="none"),
                 "thead": dict(font=(MONO[0], 11, "bold"), foreground=ACCENT, lmargin1=8, wrap="none"),
                 "bullet": dict(lmargin1=12, lmargin2=28),
@@ -1526,7 +1500,7 @@ class Overlay(tk.Tk):
                                   highlightthickness=0, font=FONT, cursor="arrow")
         self.enemy_card.grid(row=0, column=1, sticky="nsew", padx=(10, 0))
         card = self.enemy_card
-        card.tag_configure("title", font=(TITLE[0], 16), foreground=ACCENT, spacing3=2)
+        card.tag_configure("title", font=(SERIF[0], 15, "bold"), foreground=ACCENT, spacing3=2)
         card.tag_configure("sub", foreground=MUTED, spacing3=8)
         card.tag_configure("head", font=(FONT[0], 9, "bold"), foreground=ACCENT, spacing1=10, spacing3=2)
         card.tag_configure("bold", font=(FONT[0], 10, "bold"))

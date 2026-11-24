@@ -382,18 +382,8 @@ Sigrun und ihr Tödlicher Nadder Sturmspitz auf Stufe 1. Datei: `sigrun.json` (�
 | Ballista | 6 W6, Grundschaden 4, 1× pro Runde |
 | Armbrustschützen | 4 W6, Grundschaden 3, 1× pro Runde |
 
-**Balancing (Simulation, 10 000 Kämpfe):** 3 Duos auf Stufe 6 gegen Jägerschiffe, Reiter schiessen aus *Tief*.
 
-| Gegner | Sieg | Runden | Jemand auf 0 LP | Tod |
-| --- | --- | --- | --- | --- |
-| 3 Schiffe | 100 % | 4–5 | 6 % | 3 % |
-| 3 Schiffe, Nahkampf am Boden | 99 % | 6 | 22 % | 13 % |
-| 4 Schiffe | 89 % | 6–7 | 51 % | 33 % |
-| 5 Schiffe | 9 % | 7 | 98 % | 56 % |
-
-Faustregel: ein Jägerschiff pro Duo ist ein fairer Kampf, eines mehr ist gefährlich.
-
-**Gegner-Richtwerte (Simulation):** Wie viele Gegner einer Sorte schaffen 3 Duos noch sicher (mind. 90 % Sieg, höchstens 15 % Todesfälle)? «Zu Fuss» = Stufe 1 ohne Drachen, «8» = 8 oder mehr, «0» = schon einer ist zu viel.
+**Gegner-Richtwerte:** 
 
 | Gegner | zu Fuss | St. 1 | St. 3 | St. 6 | St. 9 | St. 12 | Einsatz |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -408,12 +398,4 @@ Faustregel: ein Jägerschiff pro Duo ist ein fairer Kampf, eines mehr ist gefäh
 | Drachenjäger-Flaggschiff | 0 | 0 | 0 | 0* | 1 | 2 | Boss für Stufe 6–9 |
 | Brüllender Tod | 0 | 0 | 0 | 0 | 0 | 1 | Endboss ab Stufe 11 |
 
-\* Auf Stufe 6 gewinnen 3 Duos gegen ein Flaggschiff fast immer, aber in 18 % der Kämpfe stirbt jemand. Brüllender Tod auf Stufe 9: 45 % Sieg. Gemischte Gruppen sind nicht simuliert.
 
-**Nächste Schritte**
-
-- [x] Vollständige Arten-Liste mit Werten (`Drachenliste.md`)
-- [x] 10 Gegner-Blöcke (`gegner.json`, Reiter «Gegner» im Werkzeug)
-- [x] Gegner-Werte per Simulation gegenprüfen
-- [ ] Druckbarer Charakterbogen
-- [ ] Testrunde spielen und Würfelbalance prüfen

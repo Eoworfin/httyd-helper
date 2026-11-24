@@ -34,7 +34,7 @@ def _pdf_font(tk_font, requested=""):
     # the requested family decides (the installed fallback may differ, e.g. Georgia on Linux)
     family = f'{requested} {tk_font.actual("family")}'.lower()
     bold = tk_font.actual("weight") == "bold"
-    if any(name in family for name in ("georgia", "times", "garamond")) or family.startswith("serif"):
+    if any(name in family for name in ("georgia", "times", "garamond", "crimson", "uncial")) or family.startswith("serif"):
         base = "Times-Bold" if bold else "Times-Roman"
     elif any(name in family for name in ("mono", "courier", "consolas", "cascadia")):
         base = "Courier-Bold" if bold else "Courier"

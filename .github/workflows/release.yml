@@ -30,14 +30,14 @@ jobs:
           Set-Content -Path version.txt -Value $version -NoNewline
 
       - name: Build
-        run: pyinstaller --noconfirm --windowed --name Drachenreiter --add-data "version.txt;." httyd_overlay.py
+        run: pyinstaller --noconfirm --windowed --name Drachenreiter --add-data "version.txt;." --add-data "fonts;fonts" httyd_overlay.py
 
       - name: Add data folder and pack
         shell: pwsh
         run: |
           $data = "dist/Drachenreiter/daten"
           New-Item -ItemType Directory -Force -Path $data | Out-Null
-          Copy-Item Drachenliste.md, items.json, gegner.json, HTTYD_Regelwerk_Konzept.md, sigrun.json -Destination $data
+          Copy-Item Drachenliste.md, items.json, gegner.json, Quickstart.md, HTTYD_Regelwerk_Konzept.md, sigrun.json -Destination $data
           Compress-Archive -Path dist/Drachenreiter -DestinationPath Drachenreiter-windows.zip
 
       - uses: actions/upload-artifact@v4

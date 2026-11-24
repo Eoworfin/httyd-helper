@@ -5,6 +5,7 @@ Needs httyd_sheet.py and Drachenliste.md in the same folder (tkinter ships with 
 """
 import sys
 import tkinter as tk
+import tkinter.font as tkfont
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
@@ -38,8 +39,33 @@ ACCENT_DARK, ACCENT_LIGHT = "#b8611f", "#f0943f"
 # print colours for the PDF: white paper, dark ink, backgrounds left blank (None)
 PRINT_COLORS = {BG: "#ffffff", PANEL: "#ffffff", ROW_ALT: None, FIELD: "#f1ece3", BORDER: "#8f8578", TEXT: "#1b1b1b",
                 MUTED: "#5f574e", ACCENT: "#9c4f16", WARN: "#a3352a", SEA: "#3b6b64"}
-FONT = ("Segoe UI", 10)
+# Bundled fonts (SIL OFL, folder fonts/): Alegreya Sans for text, Crimson Text for headings and values,
+# Uncial Antiqua for titles. resolve_fonts() falls back to system fonts if they cannot be loaded.
+FONT = ("Alegreya Sans", 11)
+SERIF = ("Crimson Text", 12)
+TITLE = ("Uncial Antiqua", 14)
 MONO = ("Consolas", 11)
+FALLBACK = {"Alegreya Sans": ("Segoe UI", 10), "Crimson Text": ("Georgia", 11), "Uncial Antiqua": ("Georgia", 14)}
+
+
+def register_fonts():
+    """Make the bundled fonts available to this process only (Windows); other systems use installed fonts."""
+    folder = Path(getattr(sys, "_MEIPASS", APP_DIR)) / "fonts"
+    if sys.platform != "win32" or not folder.is_dir():
+        return
+    import ctypes
+    for file in folder.glob("*.ttf"):
+        ctypes.windll.gdi32.AddFontResourceExW(str(file), 0x10, 0)  # 0x10 = FR_PRIVATE
+
+
+register_fonts()
+
+
+def resolve_fonts(root):
+    """Swap in system fonts for any bundled font Tk cannot find (needs an existing Tk root)."""
+    global FONT, SERIF, TITLE
+    have = set(tkfont.families(root))
+    FONT, SERIF, TITLE = (font if font[0] in have else FALLBACK[font[0]] for font in (FONT, SERIF, TITLE))
 
 
 def apply_dark_theme(root):
@@ -97,6 +123,7 @@ def apply_dark_theme(root):
 
 
 RULES_NAME = "HTTYD_Regelwerk_Konzept.md"
+QUICK_NAME = "Quickstart.md"
 SETTINGS_FILE = DATA_DIR / "settings.json"
 DEFAULT_SETTINGS = {"free_edit": False, "topmost": False, "start_xp": 24, "update_check": True,
                     "gamemaster": False}
@@ -121,9 +148,9 @@ def cost_kind(key):
             "dragon.toughness": "dragon_tough"}.get(key)
 
 
-def find_rules():
-    """Rulebook lives in the data folder (or one folder above the program, as in older layouts)."""
-    return next((p for p in (DATA_DIR / RULES_NAME, APP_DIR.parent / RULES_NAME) if p.exists()), None)
+def find_rules(name=RULES_NAME):
+    """Rulebook files live in the data folder (or one folder above the program, as in older layouts)."""
+    return next((p for p in (DATA_DIR / name, APP_DIR.parent / name) if p.exists()), None)
 
 
 # --- small converters ---------------------------------------------------------
@@ -142,8 +169,6 @@ def species_row(s):
 
 
 # --- read-only character sheet (DnD/DSA style) ---------------------------------
-
-SERIF = ("Georgia", 11)
 
 
 class SheetView(tk.Canvas):
@@ -293,7 +318,7 @@ class SheetView(tk.Canvas):
         # title and level / XP box only on paper; on screen they sit in the fixed bar above the sheet
         top = 75 if self.printing else 14
         if self.printing:
-            self.text(W / 2, 14, "DRACHENREITER VON BERK", 18, ACCENT, SERIF, "n", bold=True)
+            self.text(W / 2, 10, "Drachenreiter von Berk", 22, ACCENT, TITLE, "n")
             self.text(W / 2, 44, "Charakterbogen", 9, MUTED, anchor="n")
             bw, bx = 170, W - m - 170  # like the DnD class & level box
             self.create_rectangle(bx, 8, bx + bw, 58, outline=ACCENT, fill=PANEL, width=2)
@@ -444,6 +469,7 @@ class SheetView(tk.Canvas):
 class Overlay(tk.Tk):
     def __init__(self, path=None):
         super().__init__()
+        resolve_fonts(self)
         self.title(f"Drachenreiter von Berk  ·  {updater.current_version()}")  # version from the release build
         self.geometry("1280x780")
         apply_dark_theme(self)
@@ -479,6 +505,7 @@ class Overlay(tk.Tk):
         self.tabs.add(self._build_items_tab(), text="Items")
         self.enemy_tab = self._build_enemy_tab()
         self.tabs.add(self.enemy_tab, text="Gegner")  # hidden unless the game master view is on
+        self.tabs.add(self._build_quick_tab(), text="Quickstart")
         self.tabs.add(self._build_rules_tab(), text="Regeln")
         self.update_mode()
         self.set_sheet(load(path) if path else example(), path)
@@ -490,7 +517,7 @@ class Overlay(tk.Tk):
     def _build_toolbar(self):
         bar = ttk.Frame(self, padding=(10, 10, 10, 6))
         bar.pack(fill="x")
-        ttk.Label(bar, text="Drachenreiter von Berk", font=(SERIF[0], 14, "bold"),
+        ttk.Label(bar, text="Drachenreiter von Berk", font=TITLE,
                   foreground=ACCENT).pack(side="left", padx=(0, 16))
         menu_button = ttk.Menubutton(bar, text="☰  Menü")
         menu = tk.Menu(menu_button, tearoff=False, bg=PANEL, fg=TEXT, activebackground=ACCENT,
@@ -1217,24 +1244,48 @@ class Overlay(tk.Tk):
         self.chapter.bind("<<ComboboxSelected>>", lambda _: self.rules.see(self.chapters[self.chapter.get()]))
         ttk.Button(bar, text="Neu laden", command=self.load_rules).pack(side="right")
 
-        self.rules = tk.Text(tab, wrap="word", padx=24, pady=16, bg=PANEL, fg=TEXT, relief="flat",
-                             highlightthickness=0, font=FONT, spacing1=2, spacing3=2)
-        scroll = ttk.Scrollbar(tab, orient="vertical", command=self.rules.yview)
-        self.rules.configure(yscrollcommand=scroll.set)
-        self.rules.pack(side="left", fill="both", expand=True)
+        self.rules = self._markdown_view(tab)
+        self.chapters, self.rules_loaded = {}, False
+        tab.bind("<Map>", lambda _: self.rules_loaded or self.load_rules())
+        return tab
+
+    def _markdown_view(self, parent):
+        """Read-only text widget with the tags used by _render_markdown."""
+        view = tk.Text(parent, wrap="word", padx=24, pady=16, bg=PANEL, fg=TEXT, relief="flat",
+                       highlightthickness=0, font=FONT, spacing1=2, spacing3=2)
+        scroll = ttk.Scrollbar(parent, orient="vertical", command=view.yview)
+        view.configure(yscrollcommand=scroll.set)
+        view.pack(side="left", fill="both", expand=True)
         scroll.pack(side="right", fill="y")
-        tags = {"h1": dict(font=(SERIF[0], 20, "bold"), foreground=ACCENT, spacing3=8),
-                "h2": dict(font=(SERIF[0], 15, "bold"), foreground=ACCENT, spacing1=16, spacing3=6),
-                "bold": dict(font=(FONT[0], 10, "bold")),
+        tags = {"h1": dict(font=(TITLE[0], 22), foreground=ACCENT, spacing3=8),
+                "h2": dict(font=(SERIF[0], SERIF[1] + 5, "bold"), foreground=ACCENT, spacing1=16, spacing3=6),
+                "bold": dict(font=(FONT[0], FONT[1], "bold")),
                 "table": dict(font=MONO, lmargin1=8, wrap="none"),
                 "thead": dict(font=(MONO[0], 11, "bold"), foreground=ACCENT, lmargin1=8, wrap="none"),
                 "bullet": dict(lmargin1=12, lmargin2=28),
                 "muted": dict(foreground=MUTED)}
         for name, options in tags.items():
-            self.rules.tag_configure(name, **options)
-        self.chapters, self.rules_loaded = {}, False
-        tab.bind("<Map>", lambda _: self.rules_loaded or self.load_rules())
+            view.tag_configure(name, **options)
+        return view
+
+    # --- quickstart tab (short player guide from Quickstart.md)
+    def _build_quick_tab(self):
+        tab = ttk.Frame(self.tabs, padding=10)
+        self.quick = self._markdown_view(tab)
+        self.quick_loaded = False
+        tab.bind("<Map>", lambda _: self.quick_loaded or self.load_quick())
         return tab
+
+    def load_quick(self):
+        self.quick_loaded = True
+        path = find_rules(QUICK_NAME)
+        self.quick.config(state="normal")
+        self.quick.delete("1.0", "end")
+        if path:
+            self._render_markdown(path.read_text(encoding="utf-8").splitlines(), self.quick, {})
+        else:
+            self.quick.insert("end", f"{QUICK_NAME} nicht gefunden.", "muted")
+        self.quick.config(state="disabled")
 
     def load_rules(self):
         self.rules_loaded = True
@@ -1245,18 +1296,20 @@ class Overlay(tk.Tk):
         if not path:
             self.rules.insert("end", f"{RULES_NAME} nicht gefunden (gleicher Ordner oder ein Ordner höher).", "muted")
         else:
-            self._render_markdown(path.read_text(encoding="utf-8").splitlines())
+            self._render_markdown(path.read_text(encoding="utf-8").splitlines(), self.rules, self.chapters)
         self.chapter.configure(values=list(self.chapters))
         self.rules.config(state="disabled")
 
-    def _inline(self, text, base=()):
+    @staticmethod
+    def _inline(view, text, base=()):
         """Insert a line with **bold** parts; strips `code` and *italic* markers."""
         text = text.replace("`", "")
         for i, part in enumerate(text.split("**")):
             part = part.replace("*", "")
-            self.rules.insert("end", part, (*base, "bold") if i % 2 else base)
+            view.insert("end", part, (*base, "bold") if i % 2 else base)
 
-    def _render_markdown(self, lines):
+    def _render_markdown(self, lines, view, chapters):
+        """Simple markdown: headings, bullets, numbered lines, **bold**, tables as monospace columns."""
         table = []
         for line in lines + [""]:
             if line.startswith("|"):
@@ -1267,22 +1320,22 @@ class Overlay(tk.Tk):
                 widths = [max(len(r[i]) for r in rows if i < len(r)) for i in range(len(rows[0]))]
                 for n, row in enumerate(rows):
                     cells = "  ".join(c.ljust(w) for c, w in zip(row, widths))
-                    self.rules.insert("end", cells.rstrip() + "\n", "thead" if n == 0 else "table")
-                self.rules.insert("end", "\n")
+                    view.insert("end", cells.rstrip() + "\n", "thead" if n == 0 else "table")
+                view.insert("end", "\n")
                 table = []
             if line.startswith("# "):
-                self.rules.insert("end", line[2:] + "\n", "h1")
+                view.insert("end", line[2:] + "\n", "h1")
             elif line.startswith("## "):
-                self.chapters[line[3:]] = self.rules.index("end-1c")
-                self.rules.insert("end", line[3:] + "\n", "h2")
+                chapters[line[3:]] = view.index("end-1c")
+                view.insert("end", line[3:] + "\n", "h2")
             elif line.startswith(("- [ ] ", "- [x] ")):
-                self._inline(("☑ " if line[3] == "x" else "☐ ") + line[6:] + "\n", ("bullet",))
+                self._inline(view, ("☑ " if line[3] == "x" else "☐ ") + line[6:] + "\n", ("bullet",))
             elif line.startswith("- "):
-                self._inline("•  " + line[2:] + "\n", ("bullet",))
+                self._inline(view, "•  " + line[2:] + "\n", ("bullet",))
             elif line.split(". ")[0].isdigit():
-                self._inline(line + "\n", ("bullet",))
+                self._inline(view, line + "\n", ("bullet",))
             else:
-                self._inline(line + "\n")
+                self._inline(view, line + "\n")
 
     # --- items tab (catalogue from items.json)
     def _build_items_tab(self):
@@ -1473,7 +1526,7 @@ class Overlay(tk.Tk):
                                   highlightthickness=0, font=FONT, cursor="arrow")
         self.enemy_card.grid(row=0, column=1, sticky="nsew", padx=(10, 0))
         card = self.enemy_card
-        card.tag_configure("title", font=(SERIF[0], 15, "bold"), foreground=ACCENT, spacing3=2)
+        card.tag_configure("title", font=(TITLE[0], 16), foreground=ACCENT, spacing3=2)
         card.tag_configure("sub", foreground=MUTED, spacing3=8)
         card.tag_configure("head", font=(FONT[0], 9, "bold"), foreground=ACCENT, spacing1=10, spacing3=2)
         card.tag_configure("bold", font=(FONT[0], 10, "bold"))

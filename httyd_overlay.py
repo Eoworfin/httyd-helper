@@ -1017,6 +1017,8 @@ class Overlay(tk.Tk):
                                     "Charakterbogen-Werkzeug für das HTTYD-Pen-&-Paper\n\n"
                                     "Reiter und Drache bearbeiten, Charakterbogen mit Kampf-Tracking, Drachenliste, "
                                     "Items, Regelwerk und PDF-Druckversion.\n\n"
+                                    "Entwickler: LordEoworfin\n"
+                                    "Bei der Entwicklung wurden KI-gestützte Werkzeuge verwendet.\n\n"
                                     f"Daten: {DATA_DIR}\n"
                                     f"github.com/{updater.REPO}", parent=self)
 
